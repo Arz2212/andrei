@@ -11,6 +11,7 @@ import type {
   DailyReview,
   DailyReviewInsert,
   DashboardWidget,
+  DashboardWidgetLayoutItem,
   DayPlan,
   DayPlanUpdate,
   DaySlot,
@@ -18,6 +19,7 @@ import type {
   EveningReviewCriterionInsert,
   EveningReviewCriterionUpdate,
   FinanceBalanceSummary,
+  FuzzyTaskMatch,
   PendingAction,
   PendingActionInsert,
   PendingActionUpdate,
@@ -26,6 +28,7 @@ import type {
   ProjectUpdate,
   StateCheckin,
   StateCheckinInsert,
+  StateCheckinUpdate,
   Task,
   TaskInsert,
   TaskStatus,
@@ -52,6 +55,27 @@ export function addDaysToIsoDate(isoDate: string, days: number): string {
   const [y, m, d] = isoDate.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
   return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Returns Monday..Sunday (`Пн..Вс`) ISO dates (`YYYY-MM-DD`) for the week containing `anchorDateStr`.
+ */
+export function getWeekBoundsIso(anchorDateStr: string): {
+  weekStart: string;
+  weekEnd: string;
+  dates: string[];
+} {
+  const [y, m, d] = anchorDateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const jsDay = dt.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
+  const diffToMonday = jsDay === 0 ? -6 : 1 - jsDay;
+  const weekStart = addDaysToIsoDate(anchorDateStr, diffToMonday);
+  const dates = Array.from({ length: 7 }, (_, i) => addDaysToIsoDate(weekStart, i));
+  return {
+    weekStart,
+    weekEnd: dates[6],
+    dates,
+  };
 }
 
 export function deriveDaySlotFromHour(hour: number): DaySlot {
@@ -99,10 +123,6 @@ export function extractLocalTimeParts(
   };
 }
 
-/**
- * Converts a local calendar date (`YYYY-MM-DD`) and 24h clock time (`HH:MM`)
- * in `timeZone` (default `Europe/Moscow`) to an exact UTC ISO string.
- */
 export function localClockToUtcIso(
   dateStr: string,
   timeStr: string,
@@ -178,7 +198,7 @@ export function formatTaskTimeRange(
 }
 
 // ============================================================================
-// Title Similarity & Deduplication Helpers
+// Title Similarity, Deduplication & Fuzzy Task Search
 // ============================================================================
 
 const RU_EN_STOPWORDS = new Set([
@@ -199,6 +219,7 @@ const RU_EN_STOPWORDS = new Set([
   "сделать",
   "задача",
   "задачи",
+  "задачу",
   "обсудить",
   "уточнить",
   "согласовать",
@@ -220,16 +241,24 @@ export function normalizeTaskTitleForDedup(title: string): string {
     .trim();
 }
 
-function tokenizeTaskTitle(title: string): string[] {
+function stemRussianToken(word: string): string {
+  let w = word;
+  if (w.startsWith("научрук")) return "научн";
+  if (w.startsWith("позвон") || w.startsWith("созвон") || w.startsWith("звон")) return "звон";
+  if (w.startsWith("напис") || w.startsWith("письм")) return "напис";
+  if (w.length >= 6) w = w.slice(0, 5);
+  else if (w.length === 5) w = w.slice(0, 4);
+  else if (w.length === 4 && /[аяуюеиыо]$/.test(w)) w = w.slice(0, 3);
+  return w;
+}
+
+function tokenizeTaskTitle(title: string, filterStopwords = true): string[] {
   const norm = normalizeTaskTitleForDedup(title);
   if (!norm) return [];
   return norm
     .split(" ")
-    .filter((w) => w.length >= 3 && !RU_EN_STOPWORDS.has(w))
-    .map((w) => {
-      if (w.startsWith("научрук")) return "научн";
-      return w.length >= 6 ? w.slice(0, 5) : w;
-    });
+    .filter((w) => w.length >= 3 && (!filterStopwords || !RU_EN_STOPWORDS.has(w)))
+    .map(stemRussianToken);
 }
 
 export function areTaskTitlesSimilar(a: string, b: string): boolean {
@@ -278,6 +307,94 @@ export async function findSimilarActiveTasks(
   return (data ?? []).filter((t) => areTaskTitlesSimilar(t.title, params.title));
 }
 
+/**
+ * Resolves existing tasks from a natural-language Russian/English query
+ * (e.g. "позвонить Даше" / "звонок Даше", "встречу с сестрой", "научруку").
+ */
+export async function findTasksByFuzzyQuery(
+  db: TypedSupabaseClient,
+  queryText: string,
+  options: {
+    status?: TaskStatus | TaskStatus[];
+    plannedDate?: string;
+    includeDone?: boolean;
+    limit?: number;
+  } = {}
+): Promise<FuzzyTaskMatch[]> {
+  const normQuery = normalizeTaskTitleForDedup(queryText);
+  if (!normQuery) return [];
+
+  let dbQuery = db.from("tasks").select("*").neq("status", "cancelled");
+  if (options.status) {
+    if (Array.isArray(options.status)) {
+      dbQuery = dbQuery.in("status", options.status);
+    } else {
+      dbQuery = dbQuery.eq("status", options.status);
+    }
+  } else if (options.includeDone === false) {
+    dbQuery = dbQuery.neq("status", "done");
+  }
+
+  if (options.plannedDate) {
+    dbQuery = dbQuery.eq("planned_date", options.plannedDate);
+  }
+
+  const { data, error } = await dbQuery;
+  if (error) throw error;
+
+  const queryTokens = Array.from(new Set(tokenizeTaskTitle(queryText, true)));
+  const fallbackQueryTokens =
+    queryTokens.length > 0
+      ? queryTokens
+      : Array.from(new Set(tokenizeTaskTitle(queryText, false)));
+
+  const scored: FuzzyTaskMatch[] = [];
+  for (const task of data ?? []) {
+    const normTitle = normalizeTaskTitleForDedup(task.title);
+    let score = 0;
+
+    if (normTitle === normQuery) {
+      score = 1.0;
+    } else if (normTitle.includes(normQuery) || (normQuery.length >= 6 && normQuery.includes(normTitle))) {
+      score = 0.92;
+    } else if (fallbackQueryTokens.length > 0) {
+      const titleTokens = new Set(tokenizeTaskTitle(task.title, false));
+      const notesTokens = task.notes ? new Set(tokenizeTaskTitle(task.notes, false)) : new Set<string>();
+      const waitingTokens = task.waiting_on_person
+        ? new Set(tokenizeTaskTitle(task.waiting_on_person, false))
+        : new Set<string>();
+
+      let titleHits = 0;
+      let auxHits = 0;
+      for (const qt of fallbackQueryTokens) {
+        if (titleTokens.has(qt)) {
+          titleHits += 1;
+        } else if (
+          Array.from(titleTokens).some((tt) => tt.startsWith(qt) || qt.startsWith(tt))
+        ) {
+          titleHits += 0.85;
+        } else if (notesTokens.has(qt) || waitingTokens.has(qt)) {
+          auxHits += 0.5;
+        }
+      }
+
+      const coverage = (titleHits + auxHits) / fallbackQueryTokens.length;
+      const precision =
+        titleTokens.size > 0 ? titleHits / Math.max(titleTokens.size, fallbackQueryTokens.length) : 0;
+      score = coverage * 0.78 + precision * 0.22;
+    }
+
+    if (score >= 0.35) {
+      // Slight preference for active tasks over already-done tasks when scores tie
+      const activeBoost = task.status !== "done" ? 0.02 : 0;
+      scored.push({ task, score: Math.min(1, Number((score + activeBoost).toFixed(3))) });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, options.limit ?? 8);
+}
+
 // ============================================================================
 // Profile & Dashboard Widgets
 // ============================================================================
@@ -316,7 +433,12 @@ export async function updateDashboardWidget(
   db: TypedSupabaseClient,
   userId: string,
   widgetKey: WidgetKey,
-  patch: { is_visible?: boolean; desktop_order?: number; mobile_order?: number; desktop_col_span?: number }
+  patch: {
+    is_visible?: boolean;
+    desktop_order?: number;
+    mobile_order?: number;
+    desktop_col_span?: number;
+  }
 ): Promise<DashboardWidget> {
   const { data, error } = await db
     .from("dashboard_widgets")
@@ -329,40 +451,69 @@ export async function updateDashboardWidget(
   return data;
 }
 
+export async function updateDashboardWidgetsLayout(
+  db: TypedSupabaseClient,
+  userId: string,
+  items: DashboardWidgetLayoutItem[]
+): Promise<DashboardWidget[]> {
+  const rows = items.map((item) => ({
+    user_id: userId,
+    widget_key: item.widget_key,
+    is_visible: item.is_visible,
+    desktop_order: item.desktop_order,
+    mobile_order: item.mobile_order,
+    desktop_col_span: item.desktop_col_span,
+  }));
+
+  const { data, error } = await db
+    .from("dashboard_widgets")
+    .upsert(rows, { onConflict: "user_id,widget_key" })
+    .select("*");
+  if (error) throw error;
+  return (data ?? []).sort((a, b) => a.desktop_order - b.desktop_order);
+}
+
 export async function saveDashboardWidgetOrder(
   db: TypedSupabaseClient,
   userId: string,
-  items: { widget_key: WidgetKey; is_visible: boolean; desktop_order: number; mobile_order: number; desktop_col_span?: number }[]
+  items: {
+    widget_key: WidgetKey;
+    is_visible: boolean;
+    desktop_order: number;
+    mobile_order: number;
+    desktop_col_span?: number;
+  }[]
 ): Promise<void> {
-  for (const item of items) {
-    const { error } = await db
-      .from("dashboard_widgets")
-      .upsert(
-        {
-          user_id: userId,
-          widget_key: item.widget_key,
-          is_visible: item.is_visible,
-          desktop_order: item.desktop_order,
-          mobile_order: item.mobile_order,
-          desktop_col_span: item.desktop_col_span ?? 6,
-        },
-        { onConflict: "user_id,widget_key" }
-      );
-    if (error) throw error;
-  }
+  await updateDashboardWidgetsLayout(
+    db,
+    userId,
+    items.map((item) => ({
+      widget_key: item.widget_key,
+      is_visible: item.is_visible,
+      desktop_order: item.desktop_order,
+      mobile_order: item.mobile_order,
+      desktop_col_span: item.desktop_col_span ?? 6,
+    }))
+  );
 }
 
 // ============================================================================
-// Projects, Tasks, Exact Schedule, Time Conflicts & Reminders
+// Projects Full CRUD
 // ============================================================================
 
-export async function listProjects(db: TypedSupabaseClient): Promise<Project[]> {
-  const { data, error } = await db
+export async function listProjects(
+  db: TypedSupabaseClient,
+  includeArchived = false
+): Promise<Project[]> {
+  let query = db
     .from("projects")
     .select("*")
-    .neq("status", "archived")
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
+  if (!includeArchived) {
+    query = query.neq("status", "archived");
+  }
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }
@@ -390,6 +541,18 @@ export async function updateProject(
   if (error) throw error;
   return data;
 }
+
+export async function deleteProject(
+  db: TypedSupabaseClient,
+  projectId: number
+): Promise<void> {
+  const { error } = await db.from("projects").delete().eq("id", projectId);
+  if (error) throw error;
+}
+
+// ============================================================================
+// Tasks, Range Queries, Exact Schedule, Time Conflicts & Reminders
+// ============================================================================
 
 export interface ListTasksFilter {
   status?: TaskStatus | TaskStatus[];
@@ -440,6 +603,83 @@ export async function listTasks(
   return data ?? [];
 }
 
+/**
+ * Fetches all tasks (including `done` tasks by default for past/future calendar browsing)
+ * whose `planned_date` is within `[startDate, endDate]` OR whose `scheduled_start_at`
+ * falls within `[startDate 00:00, endDate 23:59:59]` in `timeZone`.
+ */
+export async function listTasksInDateRange(
+  db: TypedSupabaseClient,
+  params: {
+    startDate: string;
+    endDate: string;
+    includeDone?: boolean;
+    includeInbox?: boolean;
+    timeZone?: string;
+  }
+): Promise<Task[]> {
+  const includeDone = params.includeDone ?? true;
+  const tz = params.timeZone ?? "Europe/Moscow";
+  const rangeStartUtc = localClockToUtcIso(params.startDate, "00:00", tz);
+  const nextDayStr = addDaysToIsoDate(params.endDate, 1);
+  const rangeEndUtc = localClockToUtcIso(nextDayStr, "00:00", tz);
+
+  let byPlannedQuery = db
+    .from("tasks")
+    .select("*")
+    .neq("status", "cancelled")
+    .gte("planned_date", params.startDate)
+    .lte("planned_date", params.endDate);
+
+  let byScheduledQuery = db
+    .from("tasks")
+    .select("*")
+    .neq("status", "cancelled")
+    .gte("scheduled_start_at", rangeStartUtc)
+    .lt("scheduled_start_at", rangeEndUtc);
+
+  if (!includeDone) {
+    byPlannedQuery = byPlannedQuery.neq("status", "done");
+    byScheduledQuery = byScheduledQuery.neq("status", "done");
+  }
+
+  const promises: PromiseLike<{ data: Task[] | null; error: unknown }>[] = [
+    byPlannedQuery,
+    byScheduledQuery,
+  ];
+
+  if (params.includeInbox) {
+    let inboxQ = db
+      .from("tasks")
+      .select("*")
+      .eq("status", "inbox")
+      .is("planned_date", null);
+    promises.push(inboxQ);
+  }
+
+  const results = await Promise.all(promises);
+  const byId = new Map<number, Task>();
+  for (const res of results) {
+    if (res.error) throw res.error;
+    for (const row of res.data ?? []) {
+      byId.set(row.id, row);
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const dateA = a.planned_date ?? (a.scheduled_start_at ? extractLocalTimeParts(a.scheduled_start_at, tz).dateStr : "9999-99-99");
+    const dateB = b.planned_date ?? (b.scheduled_start_at ? extractLocalTimeParts(b.scheduled_start_at, tz).dateStr : "9999-99-99");
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    if (a.scheduled_start_at && b.scheduled_start_at) {
+      return Date.parse(a.scheduled_start_at) - Date.parse(b.scheduled_start_at);
+    }
+    if (a.scheduled_start_at) return -1;
+    if (b.scheduled_start_at) return 1;
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.sort_order - b.sort_order;
+  });
+}
+
 export async function getWaitingTasks(db: TypedSupabaseClient): Promise<Task[]> {
   const { data, error } = await db
     .from("tasks")
@@ -471,7 +711,6 @@ function enrichScheduleFieldsOnInsert(
     if (next.remind_before_minutes === undefined) {
       next.remind_before_minutes = 15;
     } else if (next.remind_before_minutes === null && next.reminder_sent_at === undefined) {
-      // Explicit null from UI = disable Telegram reminder for this task
       next.reminder_sent_at = REMINDER_DISABLED_SENTINEL;
     }
   }
@@ -571,9 +810,6 @@ export async function deleteTask(db: TypedSupabaseClient, id: number): Promise<v
   if (error) throw error;
 }
 
-/**
- * Checks whether `[startAt, endAt)` overlaps any active scheduled task/meeting.
- */
 export async function findTimeConflicts(
   db: TypedSupabaseClient,
   params: {
@@ -645,9 +881,6 @@ export async function findTimeConflicts(
   return conflicts;
 }
 
-/**
- * Returns active scheduled tasks whose Telegram reminder should fire now.
- */
 export async function getDueTaskReminders(
   db: TypedSupabaseClient,
   now: Date = new Date()
@@ -730,6 +963,21 @@ export async function getDayPlan(
   return data;
 }
 
+export async function getDayPlansInRange(
+  db: TypedSupabaseClient,
+  startDate: string,
+  endDate: string
+): Promise<DayPlan[]> {
+  const { data, error } = await db
+    .from("day_plans")
+    .select("*")
+    .gte("plan_date", startDate)
+    .lte("plan_date", endDate)
+    .order("plan_date", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function upsertDayPlan(
   db: TypedSupabaseClient,
   userId: string,
@@ -753,7 +1001,7 @@ export async function upsertDayPlan(
 }
 
 // ============================================================================
-// State Check-ins & Evening Review
+// State Check-ins (Pulse) & Evening Review Full CRUD
 // ============================================================================
 
 export async function listStateCheckins(
@@ -769,6 +1017,19 @@ export async function listStateCheckins(
   return data ?? [];
 }
 
+export async function getStateCheckin(
+  db: TypedSupabaseClient,
+  id: number
+): Promise<StateCheckin | null> {
+  const { data, error } = await db
+    .from("state_checkins")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function createStateCheckin(
   db: TypedSupabaseClient,
   input: StateCheckinInsert
@@ -776,6 +1037,29 @@ export async function createStateCheckin(
   const { data, error } = await db.from("state_checkins").insert(input).select("*").single();
   if (error) throw error;
   return data;
+}
+
+export async function updateStateCheckin(
+  db: TypedSupabaseClient,
+  id: number,
+  patch: StateCheckinUpdate
+): Promise<StateCheckin> {
+  const { data, error } = await db
+    .from("state_checkins")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteStateCheckin(
+  db: TypedSupabaseClient,
+  id: number
+): Promise<void> {
+  const { error } = await db.from("state_checkins").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function listEveningCriteria(
@@ -859,6 +1143,18 @@ export async function upsertDailyReview(
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function deleteDailyReview(
+  db: TypedSupabaseClient,
+  reviewDateOrId: string | number
+): Promise<void> {
+  const query = db.from("daily_reviews").delete();
+  const { error } =
+    typeof reviewDateOrId === "number"
+      ? await query.eq("id", reviewDateOrId)
+      : await query.eq("review_date", reviewDateOrId);
+  if (error) throw error;
 }
 
 // ============================================================================
@@ -1066,10 +1362,6 @@ export async function cancelPendingAction(
   });
 }
 
-/**
- * Commits a confirmed Human-in-the-Loop pending action to live domain tables
- * (with automatic deduplication and exact-time support) and marks it `confirmed`.
- */
 export async function executePendingAction(
   db: TypedSupabaseClient,
   id: number
@@ -1132,7 +1424,6 @@ export async function executePendingAction(
               ? 15
               : null;
 
-      // Hard deduplication guard on the same planned_date
       const existingSimilar = await findSimilarActiveTasks(db, {
         plannedDate,
         title,
@@ -1164,6 +1455,7 @@ export async function executePendingAction(
           user_id: userId,
           title,
           notes: raw.notes ? String(raw.notes) : null,
+          project_id: raw.project_id ? Number(raw.project_id) : null,
           status: (raw.status as TaskStatus) ?? "todo",
           priority: Number(raw.priority ?? 2),
           planned_date: plannedDate,
@@ -1355,7 +1647,11 @@ export async function getTodayOverview(
     getOwnerProfile(db),
     getDashboardWidgets(db),
     getDayPlan(db, todayDate),
-    listTasks(db, { plannedDate: todayDate, includeDone: true }),
+    listTasksInDateRange(db, {
+      startDate: todayDate,
+      endDate: todayDate,
+      includeDone: true,
+    }),
     getWaitingTasks(db),
     listProjects(db),
     listStateCheckins(db, 5),
@@ -1383,15 +1679,16 @@ export async function getAssistantFullContext(
   todayDate: string = formatIsoDate()
 ) {
   const horizonEnd = addDaysToIsoDate(todayDate, 14);
-  const [settings, agreements, overview, upcomingTasks] = await Promise.all([
+  const [settings, agreements, overview, upcomingTasks, todayReview] = await Promise.all([
     getAssistantSettings(db),
     listAssistantAgreements(db, true),
     getTodayOverview(db, todayDate),
-    listTasks(db, {
-      fromDate: todayDate,
-      toDate: horizonEnd,
-      status: ["inbox", "todo", "in_progress"],
+    listTasksInDateRange(db, {
+      startDate: todayDate,
+      endDate: horizonEnd,
+      includeDone: false,
     }),
+    getDailyReview(db, todayDate),
   ]);
 
   return {
@@ -1399,6 +1696,7 @@ export async function getAssistantFullContext(
     agreements,
     overview,
     upcomingTasks,
+    todayReview,
   };
 }
 

@@ -109,7 +109,7 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
     }
 
     await ctx.reply(
-      `🎙 <i>«${escapeHtml(transcription.text)}»</i>`,
+      `<blockquote>🎙 ${escapeHtml(transcription.text)}</blockquote>`,
       {
         parse_mode: "HTML",
         ...threadParams,

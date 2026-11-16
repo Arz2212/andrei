@@ -11,20 +11,107 @@ export function escapeHtml(input: string): string {
 }
 
 /**
- * Converts lightweight Markdown produced by the LLM into safe Telegram HTML
- * so special characters never cause a 400 entity parse failure.
+ * Splits overly dense paragraphs (>260 chars with 3+ sentences and no line breaks)
+ * into airy 2-sentence visual blocks so Telegram messages never look like a wall of text.
+ */
+function ensureAiryParagraphs(text: string): string {
+  const blocks = text.split(/\n{2,}/);
+  const out: string[] = [];
+
+  for (const block of blocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+
+    // Leave lists, code blocks, headers, and short blocks untouched
+    if (
+      trimmed.includes("\n") ||
+      trimmed.length <= 260 ||
+      trimmed.startsWith("<pre>") ||
+      trimmed.startsWith("<blockquote>") ||
+      trimmed.startsWith("• ")
+    ) {
+      out.push(trimmed);
+      continue;
+    }
+
+    const sentences = trimmed.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
+    if (!sentences || sentences.length <= 2) {
+      out.push(trimmed);
+      continue;
+    }
+
+    for (let i = 0; i < sentences.length; i += 2) {
+      const chunk = sentences
+        .slice(i, i + 2)
+        .join(" ")
+        .trim();
+      if (chunk) out.push(chunk);
+    }
+  }
+
+  return out.join("\n\n");
+}
+
+/**
+ * Converts Markdown produced by the LLM into clean, structured Telegram HTML
+ * (`<b>`, `<i>`, `<code>`, `<pre>`, `<blockquote>`, `•` bullets) without entity parse errors.
  */
 export function markdownToTelegramHtml(md: string): string {
-  let text = escapeHtml(md.trim());
-  // Code blocks
-  text = text.replace(/```([\s\S]*?)```/g, "<pre>$1</pre>");
-  // Inline code
-  text = text.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-  // Bold **text**
-  text = text.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
-  // Clean markdown headings ### Heading -> bold line
-  text = text.replace(/^#{1,4}\s+(.+)$/gm, "<b>$1</b>");
-  return text;
+  const codeBlocks: string[] = [];
+  let working = md.trim().replace(/\r\n/g, "\n");
+
+  // 1. Protect fenced code blocks before escaping
+  working = working.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_m, code: string) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(`<pre>${escapeHtml(code.trim())}</pre>`);
+    return `@@CODEBLOCK_${idx}@@`;
+  });
+
+  // 2. Escape raw HTML characters
+  working = escapeHtml(working);
+
+  // 3. Convert consecutive "> ..." lines into Telegram <blockquote>
+  working = working.replace(/(?:^&gt;\s?.+(?:\n|$))+/gm, (quoteBlock) => {
+    const inner = quoteBlock
+      .trim()
+      .split("\n")
+      .map((line) => line.replace(/^&gt;\s?/, ""))
+      .join("\n");
+    return `<blockquote>${inner}</blockquote>\n`;
+  });
+
+  // 4. Inline code `...`
+  working = working.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+
+  // 5. Markdown headings ### Title -> bold visual header
+  working = working.replace(/^#{1,4}\s+(.+)$/gm, "<b>$1</b>");
+
+  // 6. Bold **text** and __text__
+  working = working.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  working = working.replace(/__([^_\n]+)__/g, "<b>$1</b>");
+
+  // 7. Italic *text* (single asterisk not inside words/tags)
+  working = working.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/gm, "$1<i>$2</i>");
+
+  // 8. Normalize unordered bullets `- item` / `* item` -> `• item`
+  working = working.replace(/^[ \t]*[-*]\s+/gm, "• ");
+
+  // 9. Normalize spacing & break dense walls of text
+  working = working.replace(/\n{3,}/g, "\n\n");
+  working = ensureAiryParagraphs(working);
+
+  // 10. Restore protected code blocks
+  working = working.replace(/@@CODEBLOCK_(\d+)@@/g, (_m, i: string) => codeBlocks[Number(i)] ?? "");
+
+  return working.trim();
+}
+
+export function stripHtmlTagsForFallback(html: string): string {
+  return html
+    .replace(/<\/?(?:b|i|code|pre|blockquote)>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 export function getThreadReplyParams(ctx: Context): { message_thread_id?: number } {
@@ -47,7 +134,7 @@ export async function replyFormatted(
       ...threadParams,
     });
   } catch {
-    return await ctx.reply(markdownText, {
+    return await ctx.reply(stripHtmlTagsForFallback(html), {
       link_preview_options: { is_disabled: true },
       reply_markup: keyboard,
       ...threadParams,

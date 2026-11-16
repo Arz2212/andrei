@@ -12,6 +12,7 @@ export type DashboardWidgetInsert = TablesInsert<"dashboard_widgets">;
 export type DashboardWidgetUpdate = TablesUpdate<"dashboard_widgets">;
 export type WidgetKey =
   | "now_focus"
+  | "day_timeline"
   | "day_slots_buffer"
   | "safe_to_spend"
   | "waiting_radar"
@@ -21,6 +22,14 @@ export type WidgetKey =
   | "today_meals"
   | "goals_progress"
   | "pending_confirmations";
+
+export interface DashboardWidgetLayoutItem {
+  widget_key: WidgetKey;
+  is_visible: boolean;
+  desktop_order: number;
+  mobile_order: number;
+  desktop_col_span: number;
+}
 
 export type Goal = Tables<"goals">;
 export type Project = Tables<"projects">;
@@ -42,12 +51,18 @@ export interface TimeConflict {
   plannedDate: string | null;
 }
 
+export interface FuzzyTaskMatch {
+  task: Task;
+  score: number;
+}
+
 export type DayPlan = Tables<"day_plans">;
 export type DayPlanInsert = TablesInsert<"day_plans">;
 export type DayPlanUpdate = TablesUpdate<"day_plans">;
 
 export type StateCheckin = Tables<"state_checkins">;
 export type StateCheckinInsert = TablesInsert<"state_checkins">;
+export type StateCheckinUpdate = TablesUpdate<"state_checkins">;
 
 export type EveningReviewCriterion = Tables<"evening_review_criteria">;
 export type EveningReviewCriterionInsert = TablesInsert<"evening_review_criteria">;

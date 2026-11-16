@@ -6,10 +6,14 @@ import { getBrowserSupabase } from "@/lib/supabase/browser";
 
 const WATCHED_TABLES = [
   "tasks",
+  "projects",
   "day_plans",
   "pending_actions",
   "state_checkins",
+  "daily_reviews",
   "dashboard_widgets",
+  "assistant_settings",
+  "assistant_agreements",
   "finance_transactions",
   "finance_accounts",
 ] as const;
@@ -26,7 +30,7 @@ export function useRealtimeRefresh() {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         router.refresh();
-      }, 250);
+      }, 220);
     };
 
     let channel = supabase.channel("life-os-live-sync");
@@ -42,8 +46,20 @@ export function useRealtimeRefresh() {
       setConnected(status === "SUBSCRIBED");
     });
 
+    const handleFocus = () => triggerRefresh();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        triggerRefresh();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
       void supabase.removeChannel(channel);
     };
   }, [router]);

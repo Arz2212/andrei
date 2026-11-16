@@ -16,11 +16,14 @@ export default async function TasksPage({
   const params = await searchParams;
   const { db } = await requireOwnerSession();
   const profile = await getOwnerProfile(db);
-  const todayDate = formatIsoDate(new Date(), profile?.timezone ?? "Europe/Moscow");
+  const todayDate = formatIsoDate(
+    new Date(),
+    profile?.timezone ?? "Europe/Moscow"
+  );
 
   const [tasks, projects, dayPlan] = await Promise.all([
     listTasks(db, { includeDone: true }),
-    listProjects(db),
+    listProjects(db, false),
     getDayPlan(db, todayDate),
   ]);
 

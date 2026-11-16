@@ -6,11 +6,13 @@ import { toast } from "sonner";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CalendarClockIcon,
   CheckIcon,
   ClockIcon,
   HourglassIcon,
   LayersIcon,
   MoonStarIcon,
+  PencilIcon,
   PlusIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
@@ -23,6 +25,7 @@ import {
 import {
   formatTaskTimeRange,
   type DashboardWidget,
+  type DashboardWidgetLayoutItem,
   type DayPlan,
   type FinanceBalanceSummary,
   type PendingAction,
@@ -36,15 +39,18 @@ import {
   cancelPendingActionWeb,
   confirmPendingActionWeb,
   createStateCheckinAction,
+  fetchDayScheduleAction,
   saveDashboardWidgetsAction,
   saveDayPlanAction,
   toggleTaskAction,
+  updateStateCheckinAction,
 } from "@/app/actions";
 import { cn, formatDateShortRu, formatMinutesRu, formatRub } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -59,9 +65,11 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ResponsiveModal } from "@/components/shell/responsive-modal";
 import { TaskFormModal } from "@/components/modules/task-form-modal";
+import { DayTimeline } from "@/components/modules/day-timeline";
 
 const WIDGET_LABELS: Record<WidgetKey, string> = {
-  now_focus: "Главный фокус и буфер дня",
+  now_focus: "Главный фокус дня",
+  day_timeline: "Шкала дня (по часам)",
   day_slots_buffer: "Слоты дня (Утро · День · Вечер)",
   safe_to_spend: "Доступно для трат (Safe-to-Spend)",
   state_pulse: "Пульс энергии и настроения",
@@ -75,12 +83,35 @@ const WIDGET_LABELS: Record<WidgetKey, string> = {
 
 const STAGE1_WIDGET_KEYS: WidgetKey[] = [
   "now_focus",
-  "safe_to_spend",
-  "day_slots_buffer",
   "state_pulse",
+  "day_timeline",
   "waiting_radar",
+  "day_slots_buffer",
+  "safe_to_spend",
   "pending_confirmations",
 ];
+
+// Sensible allowed desktop column spans per widget (on 12-col grid)
+const ALLOWED_SPANS_BY_WIDGET: Record<WidgetKey, number[]> = {
+  now_focus: [6, 8, 12],
+  day_timeline: [6, 8, 12],
+  day_slots_buffer: [6, 8, 12],
+  state_pulse: [4, 6, 8],
+  waiting_radar: [4, 6, 8],
+  safe_to_spend: [4, 6, 8],
+  pending_confirmations: [4, 6, 8],
+  habits_strip: [4, 6, 8],
+  workout_window: [4, 6, 8],
+  today_meals: [4, 6, 8],
+  goals_progress: [4, 6, 8],
+};
+
+const SPAN_SHORT_LABELS: Record<number, string> = {
+  4: "4 · Узкий",
+  6: "6 · Половина",
+  8: "8 · Широкий",
+  12: "12 · Полный",
+};
 
 const COL_SPAN_CLASS: Record<number, string> = {
   3: "lg:col-span-3",
@@ -91,6 +122,14 @@ const COL_SPAN_CLASS: Record<number, string> = {
   8: "lg:col-span-8",
   12: "lg:col-span-12",
 };
+
+function normalizeAllowedSpan(key: WidgetKey, rawSpan: number): number {
+  const allowed = ALLOWED_SPANS_BY_WIDGET[key] ?? [4, 6, 8];
+  if (allowed.includes(rawSpan)) return rawSpan;
+  return allowed.reduce((prev, curr) =>
+    Math.abs(curr - rawSpan) < Math.abs(prev - rawSpan) ? curr : prev
+  );
+}
 
 interface DashboardViewProps {
   todayDate: string;
@@ -119,7 +158,7 @@ export function DashboardView({
 }: DashboardViewProps) {
   const [, startTransition] = React.useTransition();
 
-  // Optimistic tasks for instant 0ms checkbox toggles
+  // Optimistic tasks for today
   const [optimisticTasks, applyOptimisticToggle] = React.useOptimistic(
     todayTasks,
     (current: Task[], update: { id: number; done: boolean }) =>
@@ -128,11 +167,49 @@ export function DashboardView({
       )
   );
 
+  // Day Timeline date navigation (defaults to todayDate, fetches past/future days on demand)
+  const [timelineDate, setTimelineDate] = React.useState(todayDate);
+  const [otherDayTasks, setOtherDayTasks] = React.useState<Task[]>([]);
+  const [otherDayBuffer, setOtherDayBuffer] = React.useState<number | null>(null);
+  const [timelineLoading, setTimelineLoading] = React.useState(false);
+
+  const loadTimelineDate = React.useCallback(
+    async (targetDate: string) => {
+      setTimelineDate(targetDate);
+      if (targetDate === todayDate) {
+        setOtherDayTasks([]);
+        setOtherDayBuffer(null);
+        return;
+      }
+      setTimelineLoading(true);
+      try {
+        const res = await fetchDayScheduleAction(targetDate);
+        setOtherDayTasks(res.tasks);
+        setOtherDayBuffer(res.dayPlan?.buffer_minutes ?? null);
+      } catch {
+        toast.error("Не удалось загрузить расписание дня");
+      } finally {
+        setTimelineLoading(false);
+      }
+    },
+    [todayDate]
+  );
+
   // Modals
   const [customizeOpen, setCustomizeOpen] = React.useState(false);
   const [focusEditOpen, setFocusEditOpen] = React.useState(false);
   const [taskModalOpen, setTaskModalOpen] = React.useState(false);
   const [editingTask, setEditingTask] = React.useState<Task | null>(null);
+  const [modalPlannedDate, setModalPlannedDate] =
+    React.useState<string | null>(todayDate);
+  const [modalScheduledTime, setModalScheduledTime] =
+    React.useState<string | null>(null);
+
+  // Edit latest pulse modal
+  const [pulseEditOpen, setPulseEditOpen] = React.useState(false);
+  const [editPulseEnergy, setEditPulseEnergy] = React.useState("4");
+  const [editPulseMood, setEditPulseMood] = React.useState("4");
+  const [editPulseNote, setEditPulseNote] = React.useState("");
 
   // Day plan edit state
   const availableMins =
@@ -158,21 +235,16 @@ export function DashboardView({
   );
 
   // Normalize customizable widgets list
-  const initialOrderedWidgets = React.useMemo(() => {
+  const initialOrderedWidgets = React.useMemo<DashboardWidgetLayoutItem[]>(() => {
     const byKey = new Map(widgets.map((w) => [w.widget_key as WidgetKey, w]));
-    const defaults: {
-      widget_key: WidgetKey;
-      is_visible: boolean;
-      desktop_order: number;
-      mobile_order: number;
-      desktop_col_span: number;
-    }[] = [
-      { widget_key: "now_focus", is_visible: true, desktop_order: 1, mobile_order: 1, desktop_col_span: 7 },
-      { widget_key: "safe_to_spend", is_visible: true, desktop_order: 2, mobile_order: 2, desktop_col_span: 5 },
-      { widget_key: "day_slots_buffer", is_visible: true, desktop_order: 3, mobile_order: 3, desktop_col_span: 7 },
-      { widget_key: "state_pulse", is_visible: true, desktop_order: 4, mobile_order: 4, desktop_col_span: 5 },
-      { widget_key: "waiting_radar", is_visible: true, desktop_order: 5, mobile_order: 5, desktop_col_span: 6 },
-      { widget_key: "pending_confirmations", is_visible: true, desktop_order: 6, mobile_order: 6, desktop_col_span: 6 },
+    const defaults: DashboardWidgetLayoutItem[] = [
+      { widget_key: "now_focus", is_visible: true, desktop_order: 1, mobile_order: 1, desktop_col_span: 8 },
+      { widget_key: "state_pulse", is_visible: true, desktop_order: 2, mobile_order: 2, desktop_col_span: 4 },
+      { widget_key: "day_timeline", is_visible: true, desktop_order: 3, mobile_order: 3, desktop_col_span: 8 },
+      { widget_key: "waiting_radar", is_visible: true, desktop_order: 4, mobile_order: 4, desktop_col_span: 4 },
+      { widget_key: "day_slots_buffer", is_visible: true, desktop_order: 5, mobile_order: 5, desktop_col_span: 6 },
+      { widget_key: "safe_to_spend", is_visible: true, desktop_order: 6, mobile_order: 6, desktop_col_span: 6 },
+      { widget_key: "pending_confirmations", is_visible: true, desktop_order: 7, mobile_order: 7, desktop_col_span: 6 },
     ];
 
     return defaults
@@ -184,7 +256,10 @@ export function DashboardView({
               is_visible: saved.is_visible,
               desktop_order: saved.desktop_order,
               mobile_order: saved.mobile_order,
-              desktop_col_span: saved.desktop_col_span,
+              desktop_col_span: normalizeAllowedSpan(
+                def.widget_key,
+                saved.desktop_col_span
+              ),
             }
           : def;
       })
@@ -197,7 +272,7 @@ export function DashboardView({
     setWidgetDraft(initialOrderedWidgets);
   }, [initialOrderedWidgets]);
 
-  // Buffer & capacity math
+  // Compact time metrics (no progress bar!)
   const activeTodayTasks = optimisticTasks.filter(
     (t) => t.status !== "done" && t.status !== "cancelled"
   );
@@ -209,18 +284,19 @@ export function DashboardView({
   const netCapacityMinutes = Math.max(availableMins - bufferMins, 0);
   const freeMinutesLeft = netCapacityMinutes - scheduledMinutes;
   const isOverloaded = freeMinutesLeft < 0;
-  const loadRatio = Math.min(
-    100,
-    Math.round((scheduledMinutes / Math.max(availableMins, 1)) * 100)
-  );
-  const bufferRatio = Math.min(
-    100 - loadRatio,
-    Math.round((bufferMins / Math.max(availableMins, 1)) * 100)
-  );
 
   function handleToggleTask(task: Task, checked: boolean) {
+    if (timelineDate !== todayDate) {
+      setOtherDayTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id ? { ...t, status: checked ? "done" : "todo" } : t
+        )
+      );
+    }
     startTransition(async () => {
-      applyOptimisticToggle({ id: task.id, done: checked });
+      if (timelineDate === todayDate) {
+        applyOptimisticToggle({ id: task.id, done: checked });
+      }
       try {
         await toggleTaskAction(task.id, checked);
       } catch {
@@ -261,6 +337,26 @@ export function DashboardView({
     });
   }
 
+  function handleUpdateLatestPulse(e: React.FormEvent) {
+    e.preventDefault();
+    if (!latestCheckin) return;
+    startTransition(async () => {
+      try {
+        await updateStateCheckinAction(latestCheckin.id, {
+          energy_score: Number(editPulseEnergy) || 4,
+          mood_score: Number(editPulseMood) || 4,
+          tension_score: latestCheckin.tension_score,
+          context_tags: latestCheckin.context_tags ?? [],
+          note: editPulseNote,
+        });
+        toast.success("Отметка состояния обновлена");
+        setPulseEditOpen(false);
+      } catch {
+        toast.error("Не удалось обновить отметку");
+      }
+    });
+  }
+
   function moveWidget(idx: number, dir: -1 | 1) {
     setWidgetDraft((prev) => {
       const next = [...prev];
@@ -281,7 +377,7 @@ export function DashboardView({
     startTransition(async () => {
       try {
         await saveDashboardWidgetsAction(widgetDraft);
-        toast.success("Сетка главного экрана сохранена");
+        toast.success("Раскладка и размеры виджетов сохранены");
         setCustomizeOpen(false);
       } catch {
         toast.error("Не удалось сохранить настройки сетки");
@@ -329,8 +425,8 @@ export function DashboardView({
 
         return (
           <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
-            <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3">
-              <div className="flex flex-col gap-1">
+            <CardHeader className="flex flex-col items-start gap-2.5 pb-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-1">
                 <CardTitle className="text-lg font-semibold tracking-tight">
                   Фокус прямо сейчас
                 </CardTitle>
@@ -339,18 +435,24 @@ export function DashboardView({
                     "Задай главную опору дня, чтобы не распыляться на мелочи."}
                 </CardDescription>
               </div>
-              <Button
+
+              {/* Understated Corner Text Time Summary (no progress bar!) */}
+              <button
                 type="button"
-                variant="outline"
-                size="sm"
                 onClick={() => setFocusEditOpen(true)}
-                className="min-h-9 shrink-0 rounded-xl"
+                className={cn(
+                  "shrink-0 rounded-xl border border-border/80 bg-muted/40 px-3 py-1.5 text-left text-xs transition-colors hover:bg-muted sm:text-right num-tabular",
+                  isOverloaded ? "text-destructive" : "text-muted-foreground"
+                )}
+                title="Настроить фокус и резерв дня"
               >
-                Буфер дня
-              </Button>
+                {isOverloaded
+                  ? `Перегруз +${formatMinutesRu(Math.abs(freeMinutesLeft))}`
+                  : `${formatMinutesRu(scheduledMinutes)} в плане · резерв ${formatMinutesRu(bufferMins)}`}
+              </button>
             </CardHeader>
 
-            <CardContent className="flex flex-col gap-4">
+            <CardContent className="flex flex-col gap-3">
               {topTask ? (
                 <div className="flex items-start gap-3 rounded-xl border border-primary/25 bg-accent/55 p-3.5">
                   <div className="flex size-11 -m-2 shrink-0 items-center justify-center">
@@ -364,6 +466,8 @@ export function DashboardView({
                     className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1"
                     onClick={() => {
                       setEditingTask(topTask);
+                      setModalPlannedDate(todayDate);
+                      setModalScheduledTime(null);
                       setTaskModalOpen(true);
                     }}
                   >
@@ -391,47 +495,6 @@ export function DashboardView({
                   Все ключевые задачи на сегодня закрыты. Можно отдохнуть или взять дело из входящих.
                 </div>
               )}
-
-              {/* Day Buffer Capacity Bar */}
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="text-muted-foreground">
-                    Запланировано{" "}
-                    <strong className="font-medium text-foreground num-tabular">
-                      {formatMinutesRu(scheduledMinutes)}
-                    </strong>{" "}
-                    из{" "}
-                    <span className="num-tabular">
-                      {formatMinutesRu(availableMins)}
-                    </span>
-                  </span>
-                  <span
-                    className={cn(
-                      "font-medium num-tabular",
-                      isOverloaded ? "text-destructive" : "text-primary"
-                    )}
-                  >
-                    {isOverloaded
-                      ? `Перегруз на ${formatMinutesRu(Math.abs(freeMinutesLeft))} (буфер съеден)`
-                      : `Свободно до буфера: ${formatMinutesRu(freeMinutesLeft)} + резерв ${formatMinutesRu(bufferMins)}`}
-                  </span>
-                </div>
-
-                <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-secondary">
-                  <div
-                    className={cn(
-                      "h-full transition-all",
-                      isOverloaded ? "bg-destructive" : "bg-primary"
-                    )}
-                    style={{ width: `${loadRatio}%` }}
-                  />
-                  <div
-                    className="h-full bg-domain-nutrition/45 transition-all"
-                    style={{ width: `${bufferRatio}%` }}
-                    title="Защитный буфер дня"
-                  />
-                </div>
-              </div>
             </CardContent>
 
             <CardFooter className="justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground">
@@ -445,6 +508,64 @@ export function DashboardView({
                 Открыть весь план
               </Link>
             </CardFooter>
+          </Card>
+        );
+      }
+
+      case "day_timeline": {
+        const displayTasks =
+          timelineDate === todayDate ? optimisticTasks : otherDayTasks;
+        const displayBuf =
+          timelineDate === todayDate
+            ? bufferMins
+            : otherDayBuffer ?? profile?.daily_buffer_minutes ?? 90;
+
+        return (
+          <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <CalendarClockIcon className="size-4 text-primary" />
+                  <CardTitle className="text-base font-semibold tracking-tight">
+                    Шкала дня
+                  </CardTitle>
+                </div>
+                <CardDescription>
+                  Нажми на любой час, чтобы поставить встречу или задачу ко времени
+                </CardDescription>
+              </div>
+              <Link
+                href="/tasks?tab=week"
+                className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                Неделя
+              </Link>
+            </CardHeader>
+
+            <CardContent>
+              <DayTimeline
+                todayDate={todayDate}
+                selectedDate={timelineDate}
+                onSelectDate={loadTimelineDate}
+                tasks={displayTasks}
+                projects={projects}
+                bufferMinutes={displayBuf}
+                loading={timelineLoading}
+                onToggleTask={handleToggleTask}
+                onEditTask={(t) => {
+                  setEditingTask(t);
+                  setModalPlannedDate(t.planned_date ?? timelineDate);
+                  setModalScheduledTime(null);
+                  setTaskModalOpen(true);
+                }}
+                onCreateAtTime={(dateIso, timeStr) => {
+                  setEditingTask(null);
+                  setModalPlannedDate(dateIso);
+                  setModalScheduledTime(timeStr ?? null);
+                  setTaskModalOpen(true);
+                }}
+              />
+            </CardContent>
           </Card>
         );
       }
@@ -518,7 +639,7 @@ export function DashboardView({
                   Слоты сегодняшнего дня
                 </CardTitle>
                 <CardDescription>
-                  Гибкие окна и точные встречи по времени
+                  Гибкие окна Утро · День · Вечер
                 </CardDescription>
               </div>
               <Button
@@ -527,6 +648,8 @@ export function DashboardView({
                 variant="outline"
                 onClick={() => {
                   setEditingTask(null);
+                  setModalPlannedDate(todayDate);
+                  setModalScheduledTime(null);
                   setTaskModalOpen(true);
                 }}
                 className="min-h-9 rounded-xl"
@@ -606,6 +729,10 @@ export function DashboardView({
                                 type="button"
                                 onClick={() => {
                                   setEditingTask(task);
+                                  setModalPlannedDate(
+                                    task.planned_date ?? todayDate
+                                  );
+                                  setModalScheduledTime(null);
                                   setTaskModalOpen(true);
                                 }}
                                 className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
@@ -666,7 +793,27 @@ export function DashboardView({
                 <CardTitle className="text-base font-semibold tracking-tight">
                   Состояние и энергия
                 </CardTitle>
-                <ZapIcon className="size-4 text-domain-mind" />
+                <div className="flex items-center gap-1">
+                  {latestCheckin ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        setEditPulseEnergy(String(latestCheckin.energy_score));
+                        setEditPulseMood(String(latestCheckin.mood_score));
+                        setEditPulseNote(latestCheckin.note ?? "");
+                        setPulseEditOpen(true);
+                      }}
+                      title="Редактировать последнюю отметку"
+                      aria-label="Редактировать последнюю отметку"
+                      className="size-7 rounded-lg"
+                    >
+                      <PencilIcon className="size-3.5 text-muted-foreground" />
+                    </Button>
+                  ) : null}
+                  <ZapIcon className="size-4 text-domain-mind" />
+                </div>
               </div>
               <CardDescription>
                 {latestCheckin
@@ -726,12 +873,12 @@ export function DashboardView({
                 onClick={handleQuickPulseSave}
                 className="min-h-11 w-full rounded-xl"
               >
-                Зафиксировать пульс
+                Новая отметка пульса
               </Button>
             </CardContent>
 
-            <CardFooter className="justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground">
-              <span className="truncate">
+            <CardFooter className="justify-between gap-3 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1 truncate">
                 {latestCheckin?.note || "Вечером — раздельная оценка дня"}
               </span>
               <Link
@@ -774,6 +921,8 @@ export function DashboardView({
                     type="button"
                     onClick={() => {
                       setEditingTask(wt);
+                      setModalPlannedDate(wt.planned_date);
+                      setModalScheduledTime(null);
                       setTaskModalOpen(true);
                     }}
                     className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-border/80 bg-background/50 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/50"
@@ -892,7 +1041,7 @@ export function DashboardView({
         <div className="flex flex-col gap-0.5">
           <h1 className="text-2xl font-semibold tracking-tight">Картина дня</h1>
           <p className="text-sm text-muted-foreground">
-            Спокойный обзор приоритетов, резерва времени и синхронизации с Telegram
+            Наглядная шкала часов, приоритеты и живая синхронизация с Telegram
           </p>
         </div>
 
@@ -923,60 +1072,100 @@ export function DashboardView({
         ))}
       </div>
 
-      {/* Customize Widgets Modal (Vaul Drawer on iPhone) */}
+      {/* Customize & Resize Widgets Modal (Vaul Drawer on iPhone) */}
       <ResponsiveModal
         open={customizeOpen}
         onOpenChange={setCustomizeOpen}
-        title="Настройка блоков главного экрана"
-        description="Скрой лишние карточки или поменяй их порядок под свой ритм."
+        title="Настройка и размер виджетов"
+        description="Включай нужные блоки, меняй их порядок и выбирай ширину на экране компьютера (12 колонок)."
       >
         <div className="flex flex-col gap-3">
-          {widgetDraft.map((item, idx) => (
-            <div
-              key={item.widget_key}
-              className="flex items-center justify-between gap-3 rounded-xl border border-border px-3.5 py-2.5"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <Switch
-                  checked={item.is_visible}
-                  onCheckedChange={(checked) =>
-                    setWidgetDraft((prev) =>
-                      prev.map((w, i) =>
-                        i === idx ? { ...w, is_visible: checked } : w
-                      )
-                    )
-                  }
-                  aria-label={WIDGET_LABELS[item.widget_key]}
-                />
-                <span className="truncate text-sm font-medium">
-                  {WIDGET_LABELS[item.widget_key]}
-                </span>
-              </div>
+          {widgetDraft.map((item, idx) => {
+            const allowedSpans =
+              ALLOWED_SPANS_BY_WIDGET[item.widget_key] ?? [4, 6, 8];
+            return (
+              <div
+                key={item.widget_key}
+                className="flex flex-col gap-2.5 rounded-xl border border-border px-3.5 py-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Switch
+                      checked={item.is_visible}
+                      onCheckedChange={(checked) =>
+                        setWidgetDraft((prev) =>
+                          prev.map((w, i) =>
+                            i === idx ? { ...w, is_visible: checked } : w
+                          )
+                        )
+                      }
+                      aria-label={WIDGET_LABELS[item.widget_key]}
+                    />
+                    <span className="truncate text-sm font-medium">
+                      {WIDGET_LABELS[item.widget_key]}
+                    </span>
+                  </div>
 
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={idx === 0}
-                  onClick={() => moveWidget(idx, -1)}
-                  aria-label="Поднять выше"
-                >
-                  <ArrowUpIcon />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={idx === widgetDraft.length - 1}
-                  onClick={() => moveWidget(idx, 1)}
-                  aria-label="Опустить ниже"
-                >
-                  <ArrowDownIcon />
-                </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={idx === 0}
+                      onClick={() => moveWidget(idx, -1)}
+                      aria-label="Поднять выше"
+                    >
+                      <ArrowUpIcon />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={idx === widgetDraft.length - 1}
+                      onClick={() => moveWidget(idx, 1)}
+                      aria-label="Опустить ниже"
+                    >
+                      <ArrowDownIcon />
+                    </Button>
+                  </div>
+                </div>
+
+                {item.is_visible ? (
+                  <div className="flex flex-col gap-1 pt-0.5">
+                    <span className="text-[11px] text-muted-foreground">
+                      Ширина блока на ПК:
+                    </span>
+                    <ToggleGroup
+                      type="single"
+                      value={String(item.desktop_col_span)}
+                      onValueChange={(val) => {
+                        if (!val) return;
+                        const num = Number(val);
+                        setWidgetDraft((prev) =>
+                          prev.map((w, i) =>
+                            i === idx ? { ...w, desktop_col_span: num } : w
+                          )
+                        );
+                      }}
+                      variant="outline"
+                      spacing={1}
+                      className="w-full"
+                    >
+                      {allowedSpans.map((sp) => (
+                        <ToggleGroupItem
+                          key={sp}
+                          value={String(sp)}
+                          className="min-h-8 flex-1 text-xs num-tabular"
+                        >
+                          {SPAN_SHORT_LABELS[sp] ?? `${sp} кол.`}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  </div>
+                ) : null}
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           <Separator className="my-1" />
 
@@ -990,7 +1179,7 @@ export function DashboardView({
         </div>
       </ResponsiveModal>
 
-      {/* Edit Day Focus & Buffer Modal (Vaul Drawer on iPhone) */}
+      {/* Edit Day Focus & Buffer Modal */}
       <ResponsiveModal
         open={focusEditOpen}
         onOpenChange={setFocusEditOpen}
@@ -1046,13 +1235,86 @@ export function DashboardView({
         </form>
       </ResponsiveModal>
 
+      {/* Edit Latest State Pulse Modal */}
+      <ResponsiveModal
+        open={pulseEditOpen}
+        onOpenChange={setPulseEditOpen}
+        title="Исправить последнюю отметку состояния"
+        description="Скорректируй оценку энергии, настроения или заметку."
+      >
+        <form onSubmit={handleUpdateLatestPulse} className="flex flex-col gap-4">
+          <FieldGroup className="gap-3.5">
+            <Field>
+              <FieldLabel>Энергия (1–5)</FieldLabel>
+              <ToggleGroup
+                type="single"
+                value={editPulseEnergy}
+                onValueChange={(v) => v && setEditPulseEnergy(v)}
+                variant="outline"
+                spacing={1}
+                className="w-full"
+              >
+                {["1", "2", "3", "4", "5"].map((n) => (
+                  <ToggleGroupItem
+                    key={n}
+                    value={n}
+                    className="min-h-11 flex-1 num-tabular"
+                  >
+                    {n}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </Field>
+            <Field>
+              <FieldLabel>Настроение (1–5)</FieldLabel>
+              <ToggleGroup
+                type="single"
+                value={editPulseMood}
+                onValueChange={(v) => v && setEditPulseMood(v)}
+                variant="outline"
+                spacing={1}
+                className="w-full"
+              >
+                {["1", "2", "3", "4", "5"].map((n) => (
+                  <ToggleGroupItem
+                    key={n}
+                    value={n}
+                    className="min-h-11 flex-1 num-tabular"
+                  >
+                    {n}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="dash-edit-pulse-note">Заметка</FieldLabel>
+              <Textarea
+                id="dash-edit-pulse-note"
+                rows={2}
+                value={editPulseNote}
+                onChange={(e) => setEditPulseNote(e.target.value)}
+              />
+            </Field>
+          </FieldGroup>
+          <Button type="submit" className="min-h-11 w-full rounded-xl">
+            Сохранить изменения
+          </Button>
+        </form>
+      </ResponsiveModal>
+
       {/* Create / Edit Task Modal */}
       <TaskFormModal
         open={taskModalOpen}
         onOpenChange={setTaskModalOpen}
         task={editingTask}
         projects={projects}
-        defaultPlannedDate={todayDate}
+        defaultPlannedDate={modalPlannedDate}
+        defaultScheduledTime={modalScheduledTime}
+        onSaved={() => {
+          if (timelineDate !== todayDate) {
+            void loadTimelineDate(timelineDate);
+          }
+        }}
       />
     </div>
   );

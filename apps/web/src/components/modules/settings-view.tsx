@@ -217,21 +217,19 @@ export function SettingsView({
       </div>
 
       <Tabs defaultValue="persona" className="flex flex-col gap-4">
-        <div className="overflow-x-auto pb-1">
-          <TabsList className="h-11 w-full justify-start sm:w-auto rounded-xl">
-            <TabsTrigger value="persona" className="min-h-9 px-4">
-              <SparklesIcon className="mr-1.5 size-4" />
-              Личность ИИ
-            </TabsTrigger>
-            <TabsTrigger value="agreements" className="min-h-9 px-4">
-              Договорённости ({agreements.length})
-            </TabsTrigger>
-            <TabsTrigger value="system" className="min-h-9 px-4">
-              <MessageSquareIcon className="mr-1.5 size-4" />
-              Telegram и модули
-            </TabsTrigger>
-          </TabsList>
-        </div>
+        <TabsList>
+          <TabsTrigger value="persona">
+            <SparklesIcon className="mr-1.5 size-4" />
+            Личность ИИ
+          </TabsTrigger>
+          <TabsTrigger value="agreements">
+            Договорённости ({agreements.length})
+          </TabsTrigger>
+          <TabsTrigger value="system">
+            <MessageSquareIcon className="mr-1.5 size-4" />
+            Telegram и модули
+          </TabsTrigger>
+        </TabsList>
 
         {/* PERSONA & SYSTEM PROMPT */}
         <TabsContent value="persona">

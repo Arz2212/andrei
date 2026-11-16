@@ -15,12 +15,44 @@ export default function Icon() {
           justifyContent: "center",
           borderRadius: 16,
           background: "#215E48",
-          color: "#F7F6F2",
-          fontSize: 34,
-          fontWeight: 700,
+          padding: 12,
+          gap: 6,
         }}
       >
-        L
+        <div
+          style={{
+            width: 16,
+            height: 40,
+            borderRadius: 6,
+            background: "#F7F6F2",
+          }}
+        />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            height: 40,
+            width: 18,
+          }}
+        >
+          <div
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: 999,
+              background: "#F7F6F2",
+            }}
+          />
+          <div
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: 5,
+              background: "rgba(247,246,242,0.82)",
+            }}
+          />
+        </div>
       </div>
     ),
     { ...size }

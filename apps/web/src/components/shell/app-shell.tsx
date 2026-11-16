@@ -2,27 +2,29 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
-  LayoutGridIcon,
-  CheckSquareIcon,
   BookHeartIcon,
-  SlidersHorizontalIcon,
-  WalletIcon,
+  CalendarRangeIcon,
+  CheckSquareIcon,
   HeartPulseIcon,
-  UtensilsIcon,
-  TargetIcon,
-  PlusIcon,
-  SunIcon,
+  LayoutGridIcon,
+  LogOutIcon,
   MoonIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
-  LogOutIcon,
+  PlusIcon,
+  SlidersHorizontalIcon,
+  SunIcon,
+  TargetIcon,
+  UtensilsIcon,
+  WalletIcon,
 } from "lucide-react";
 import { cn, formatDateLongRu } from "@/lib/utils";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { signOutAction } from "@/app/actions";
+import { BrandLogo } from "@/components/shell/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -39,8 +41,18 @@ interface AppShellProps {
 const PRIMARY_NAV = [
   { href: "/", label: "Главная", mobileLabel: "Сегодня", icon: LayoutGridIcon },
   { href: "/tasks", label: "Задачи и слоты", mobileLabel: "Дела", icon: CheckSquareIcon },
-  { href: "/journal", label: "Состояние и дневник", mobileLabel: "Дневник", icon: BookHeartIcon },
-  { href: "/settings", label: "ИИ и настройки", mobileLabel: "Настройки", icon: SlidersHorizontalIcon },
+  {
+    href: "/tasks?tab=week",
+    label: "Календарь недели",
+    mobileLabel: "Календарь",
+    icon: CalendarRangeIcon,
+  },
+  {
+    href: "/journal",
+    label: "Состояние и дневник",
+    mobileLabel: "Дневник",
+    icon: BookHeartIcon,
+  },
 ] as const;
 
 const MODULE_NAV = [
@@ -58,6 +70,8 @@ export function AppShell({
   pendingActionsCount,
 }: AppShellProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get("tab");
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
@@ -68,7 +82,24 @@ export function AppShell({
     setMounted(true);
   }, []);
 
-  const formattedToday = React.useMemo(() => formatDateLongRu(todayDate), [todayDate]);
+  const formattedToday = React.useMemo(
+    () => formatDateLongRu(todayDate),
+    [todayDate]
+  );
+
+  function isPrimaryActive(href: string) {
+    if (href === "/") return pathname === "/";
+    if (href === "/tasks?tab=week") {
+      return pathname === "/tasks" && currentTab === "week";
+    }
+    if (href === "/tasks") {
+      return pathname === "/tasks" && currentTab !== "week";
+    }
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  const isSettingsActive =
+    pathname === "/settings" || pathname.startsWith("/settings/");
 
   return (
     <div className="flex min-h-dvh w-full bg-background text-foreground">
@@ -87,9 +118,7 @@ export function AppShell({
         >
           {!collapsed ? (
             <Link href="/" className="flex min-w-0 items-center gap-2.5">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold">
-                L
-              </div>
+              <BrandLogo size="md" />
               <div className="flex min-w-0 flex-col">
                 <span className="truncate text-sm font-semibold tracking-tight">
                   Life OS
@@ -114,7 +143,12 @@ export function AppShell({
           </Button>
         </div>
 
-        <div className={cn("pb-3", collapsed ? "flex justify-center px-2" : "px-3")}>
+        <div
+          className={cn(
+            "pb-3",
+            collapsed ? "flex justify-center px-2" : "px-3"
+          )}
+        >
           {collapsed ? (
             <Button
               type="button"
@@ -146,10 +180,7 @@ export function AppShell({
         >
           {PRIMARY_NAV.map((item) => {
             const Icon = item.icon;
-            const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = isPrimaryActive(item.href);
 
             return (
               <Link
@@ -169,7 +200,9 @@ export function AppShell({
               >
                 <span className="flex items-center gap-2.5 truncate">
                   <Icon className="size-4 shrink-0" />
-                  {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                  {!collapsed ? (
+                    <span className="truncate">{item.label}</span>
+                  ) : null}
                 </span>
                 {!collapsed && item.href === "/tasks" && waitingCount > 0 ? (
                   <Badge variant="secondary" className="num-tabular">
@@ -214,7 +247,9 @@ export function AppShell({
               >
                 <span className="flex items-center gap-2.5 truncate">
                   <Icon className="size-4 shrink-0" />
-                  {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                  {!collapsed ? (
+                    <span className="truncate">{item.label}</span>
+                  ) : null}
                 </span>
                 {!collapsed ? (
                   <span className="text-[11px] text-muted-foreground num-tabular">
@@ -226,9 +261,33 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="flex shrink-0 flex-col gap-2 border-t border-sidebar-border p-3">
+        {/* Bottom Footer: Settings at very bottom + Sync + Theme + Logout */}
+        <div
+          className={cn(
+            "flex shrink-0 flex-col gap-2 border-t border-sidebar-border p-3",
+            collapsed && "items-center px-2"
+          )}
+        >
+          <Link
+            href="/settings"
+            title={collapsed ? "ИИ и настройки" : undefined}
+            aria-label={collapsed ? "ИИ и настройки" : undefined}
+            className={cn(
+              "flex items-center rounded-xl text-sm font-medium transition-colors",
+              isSettingsActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              collapsed
+                ? "size-10 justify-center p-0"
+                : "min-h-10 w-full justify-start gap-2.5 px-3 py-2"
+            )}
+          >
+            <SlidersHorizontalIcon className="size-4 shrink-0" />
+            {!collapsed ? <span className="truncate">ИИ и настройки</span> : null}
+          </Link>
+
           {!collapsed ? (
-            <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between px-2 py-0.5 text-xs text-muted-foreground">
               <span className="flex items-center gap-2">
                 <span
                   className={cn(
@@ -244,7 +303,7 @@ export function AppShell({
           <div
             className={cn(
               "flex items-center",
-              collapsed ? "flex-col gap-1.5" : "gap-1"
+              collapsed ? "flex-col gap-1.5" : "w-full gap-1"
             )}
           >
             {collapsed ? (
@@ -252,19 +311,31 @@ export function AppShell({
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                onClick={() =>
+                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                }
                 className="size-10 rounded-xl"
                 aria-label="Переключить тему"
-                title={mounted && resolvedTheme === "dark" ? "Светлая тема" : "Тёмная тема"}
+                title={
+                  mounted && resolvedTheme === "dark"
+                    ? "Светлая тема"
+                    : "Тёмная тема"
+                }
               >
-                {mounted && resolvedTheme === "dark" ? <SunIcon /> : <MoonIcon />}
+                {mounted && resolvedTheme === "dark" ? (
+                  <SunIcon />
+                ) : (
+                  <MoonIcon />
+                )}
               </Button>
             ) : (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                onClick={() =>
+                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                }
                 className="flex-1 rounded-xl"
                 aria-label="Переключить тему"
               >
@@ -273,7 +344,9 @@ export function AppShell({
                 ) : (
                   <MoonIcon data-icon="inline-start" />
                 )}
-                <span>{mounted && resolvedTheme === "dark" ? "Светлая" : "Тёмная"}</span>
+                <span>
+                  {mounted && resolvedTheme === "dark" ? "Светлая" : "Тёмная"}
+                </span>
               </Button>
             )}
 
@@ -299,9 +372,9 @@ export function AppShell({
         <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-md safe-top">
           <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-3 px-4 lg:h-16 lg:px-8">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold text-sm lg:hidden">
-                L
-              </div>
+              <Link href="/" className="lg:hidden">
+                <BrandLogo size="sm" />
+              </Link>
               <div className="flex min-w-0 flex-col">
                 <span className="truncate text-sm font-semibold tracking-tight lg:text-base">
                   {formattedToday}
@@ -318,16 +391,33 @@ export function AppShell({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 className="size-11 rounded-xl lg:size-9"
-                onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                onClick={() =>
+                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                }
                 aria-label="Переключить тему"
               >
-                {mounted && resolvedTheme === "dark" ? <SunIcon /> : <MoonIcon />}
+                {mounted && resolvedTheme === "dark" ? (
+                  <SunIcon />
+                ) : (
+                  <MoonIcon />
+                )}
+              </Button>
+
+              <Button
+                asChild
+                variant={isSettingsActive ? "secondary" : "ghost"}
+                size="icon"
+                className="size-11 rounded-xl lg:hidden"
+              >
+                <Link href="/settings" aria-label="ИИ и настройки">
+                  <SlidersHorizontalIcon />
+                </Link>
               </Button>
 
               <Button
@@ -357,10 +447,7 @@ export function AppShell({
         <div className="mx-auto grid max-w-md grid-cols-5 items-center px-2 py-1.5">
           {PRIMARY_NAV.slice(0, 2).map((item) => {
             const Icon = item.icon;
-            const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = isPrimaryActive(item.href);
             return (
               <Link
                 key={item.href}
@@ -389,8 +476,7 @@ export function AppShell({
 
           {PRIMARY_NAV.slice(2).map((item) => {
             const Icon = item.icon;
-            const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = isPrimaryActive(item.href);
             return (
               <Link
                 key={item.href}

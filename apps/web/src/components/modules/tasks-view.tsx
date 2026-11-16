@@ -3,8 +3,11 @@
 import * as React from "react";
 import { toast } from "sonner";
 import {
+  ArrowLeftIcon,
   BellIcon,
   CalendarDaysIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ClockIcon,
   FolderPlusIcon,
   HourglassIcon,
@@ -18,7 +21,10 @@ import {
 } from "lucide-react";
 import {
   REMINDER_DISABLED_SENTINEL,
+  addDaysToIsoDate,
+  extractLocalTimeParts,
   formatTaskTimeRange,
+  getWeekBoundsIso,
   type DayPlan,
   type DaySlot,
   type LifeArea,
@@ -27,7 +33,9 @@ import {
   type TaskStatus,
 } from "@life-os/db";
 import {
+  deleteProjectAction,
   deleteTaskAction,
+  fetchWeekScheduleAction,
   saveProjectAction,
   toggleTaskAction,
 } from "@/app/actions";
@@ -61,6 +69,7 @@ import {
 } from "@/components/ui/select";
 import { ResponsiveModal } from "@/components/shell/responsive-modal";
 import { TaskFormModal } from "@/components/modules/task-form-modal";
+import { WeekCalendarGrid } from "@/components/modules/week-calendar-grid";
 
 const LIFE_AREA_LABELS: Record<LifeArea, string> = {
   work: "Работа",
@@ -70,18 +79,19 @@ const LIFE_AREA_LABELS: Record<LifeArea, string> = {
   health: "Здоровье",
 };
 
+const PROJECT_STATUS_LABELS: Record<string, string> = {
+  active: "Активен",
+  on_hold: "На паузе",
+  completed: "Завершён",
+  archived: "В архиве",
+};
+
 const SLOT_META = {
   morning: { label: "Утро", icon: SunIcon },
   afternoon: { label: "День", icon: SunsetIcon },
   evening: { label: "Вечер", icon: MoonStarIcon },
   any: { label: "Гибко", icon: LayersIcon },
 } as const;
-
-function addDaysIso(baseIso: string, offset: number): string {
-  const d = new Date(`${baseIso}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + offset);
-  return d.toISOString().slice(0, 10);
-}
 
 function sortTasksChronologically(items: Task[]): Task[] {
   return [...items].sort((a, b) => {
@@ -104,6 +114,16 @@ function sortTasksChronologically(items: Task[]): Task[] {
   });
 }
 
+function taskBelongsToDate(task: Task, dateIso: string): boolean {
+  if (task.scheduled_start_at) {
+    return (
+      extractLocalTimeParts(task.scheduled_start_at, "Europe/Moscow")
+        .dateStr === dateIso
+    );
+  }
+  return task.planned_date === dateIso;
+}
+
 interface TasksViewProps {
   todayDate: string;
   initialTab?: string;
@@ -120,10 +140,14 @@ export function TasksView({
   tasks,
   projects,
   dayPlan,
-  defaultAvailableMinutes,
   defaultBufferMinutes,
 }: TasksViewProps) {
   const [, startTransition] = React.useTransition();
+  const [activeTab, setActiveTab] = React.useState(initialTab);
+
+  React.useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const [optimisticTasks, applyOptimisticMutation] = React.useOptimistic(
     tasks,
@@ -142,39 +166,90 @@ export function TasksView({
     }
   );
 
+  // Selected Day for "Сегодня / День" tab (allows inspecting past & future single days)
+  const [selectedDayIso, setSelectedDayIso] = React.useState(todayDate);
+
+  // Week Calendar anchor date & fetched historical/future week tasks
+  const [weekAnchorIso, setWeekAnchorIso] = React.useState(todayDate);
+  const [fetchedWeekTasks, setFetchedWeekTasks] = React.useState<Task[] | null>(
+    null
+  );
+  const [weekLoading, setWeekLoading] = React.useState(false);
+
+  const currentWeekBounds = React.useMemo(
+    () => getWeekBoundsIso(todayDate),
+    [todayDate]
+  );
+
+  const handleChangeWeekAnchor = React.useCallback(
+    async (nextAnchorIso: string) => {
+      setWeekAnchorIso(nextAnchorIso);
+      const nextBounds = getWeekBoundsIso(nextAnchorIso);
+      if (nextBounds.weekStart === currentWeekBounds.weekStart) {
+        setFetchedWeekTasks(null);
+        return;
+      }
+      setWeekLoading(true);
+      try {
+        const res = await fetchWeekScheduleAction(nextAnchorIso);
+        setFetchedWeekTasks(res.tasks);
+      } catch {
+        toast.error("Не удалось загрузить календарь недели");
+      } finally {
+        setWeekLoading(false);
+      }
+    },
+    [currentWeekBounds.weekStart]
+  );
+
+  // Selected project detail view inside "Проекты" tab
+  const [selectedProjectId, setSelectedProjectId] = React.useState<
+    number | null
+  >(null);
+
   // Task modal
   const [taskModalOpen, setTaskModalOpen] = React.useState(false);
   const [editingTask, setEditingTask] = React.useState<Task | null>(null);
   const [modalDefaultDate, setModalDefaultDate] =
     React.useState<string | null>(todayDate);
+  const [modalDefaultTime, setModalDefaultTime] =
+    React.useState<string | null>(null);
+  const [modalDefaultProjectId, setModalDefaultProjectId] =
+    React.useState<number | null>(null);
   const [modalDefaultStatus, setModalDefaultStatus] =
     React.useState<TaskStatus>("todo");
 
-  // Project modal
+  // Project Create / Edit modal
   const [projectModalOpen, setProjectModalOpen] = React.useState(false);
+  const [editingProject, setEditingProject] = React.useState<Project | null>(
+    null
+  );
   const [projTitle, setProjTitle] = React.useState("");
   const [projArea, setProjArea] = React.useState<LifeArea>("work");
+  const [projStatus, setProjStatus] = React.useState<
+    "active" | "on_hold" | "completed" | "archived"
+  >("active");
   const [projDesc, setProjDesc] = React.useState("");
   const [projDue, setProjDue] = React.useState("");
+  const [deletingProjectConfirm, setDeletingProjectConfirm] =
+    React.useState<Project | null>(null);
 
   const projectMap = React.useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
     [projects]
   );
 
-  const weekDates = React.useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDaysIso(todayDate, i)),
-    [todayDate]
-  );
-
-  const todayTasks = React.useMemo(
+  const dayViewTasks = React.useMemo(
     () =>
       sortTasksChronologically(
         optimisticTasks.filter(
-          (t) => t.planned_date === todayDate && t.status !== "waiting"
+          (t) =>
+            taskBelongsToDate(t, selectedDayIso) &&
+            t.status !== "waiting" &&
+            t.status !== "cancelled"
         )
       ),
-    [optimisticTasks, todayDate]
+    [optimisticTasks, selectedDayIso]
   );
 
   const waitingTasks = optimisticTasks.filter((t) => t.status === "waiting");
@@ -186,15 +261,26 @@ export function TasksView({
     [optimisticTasks]
   );
 
-  const availableMins = dayPlan?.available_minutes ?? defaultAvailableMinutes;
-  const bufferMins = dayPlan?.buffer_minutes ?? defaultBufferMinutes;
-  const scheduledTodayMins = todayTasks
+  const bufferMins =
+    selectedDayIso === todayDate
+      ? dayPlan?.buffer_minutes ?? defaultBufferMinutes
+      : defaultBufferMinutes;
+  const scheduledDayMins = dayViewTasks
     .filter((t) => t.status !== "done")
     .reduce((acc, t) => acc + (t.estimated_minutes ?? 30), 0);
-  const freeBeforeBuffer =
-    Math.max(availableMins - bufferMins, 0) - scheduledTodayMins;
 
   function handleToggle(task: Task, checked: boolean) {
+    if (fetchedWeekTasks) {
+      setFetchedWeekTasks((prev) =>
+        prev
+          ? prev.map((t) =>
+              t.id === task.id
+                ? { ...t, status: checked ? "done" : "todo" }
+                : t
+            )
+          : null
+      );
+    }
     startTransition(async () => {
       applyOptimisticMutation({ kind: "toggle", id: task.id, done: checked });
       try {
@@ -206,6 +292,11 @@ export function TasksView({
   }
 
   function handleQuickDelete(task: Task) {
+    if (fetchedWeekTasks) {
+      setFetchedWeekTasks((prev) =>
+        prev ? prev.filter((t) => t.id !== task.id) : null
+      );
+    }
     startTransition(async () => {
       applyOptimisticMutation({ kind: "delete", id: task.id });
       try {
@@ -217,32 +308,68 @@ export function TasksView({
     });
   }
 
-  function openNewTask(opts?: { date?: string | null; status?: TaskStatus }) {
+  function openNewTask(opts?: {
+    date?: string | null;
+    time?: string | null;
+    projectId?: number | null;
+    status?: TaskStatus;
+  }) {
     setEditingTask(null);
-    setModalDefaultDate(opts?.date !== undefined ? opts.date : todayDate);
+    setModalDefaultDate(opts?.date !== undefined ? opts.date : selectedDayIso);
+    setModalDefaultTime(opts?.time ?? null);
+    setModalDefaultProjectId(opts?.projectId ?? null);
     setModalDefaultStatus(opts?.status ?? "todo");
     setTaskModalOpen(true);
   }
 
-  function handleCreateProject(e: React.FormEvent) {
+  function openProjectModal(proj: Project | null) {
+    setEditingProject(proj);
+    setProjTitle(proj?.title ?? "");
+    setProjArea((proj?.life_area as LifeArea) ?? "work");
+    setProjStatus(
+      (proj?.status as "active" | "on_hold" | "completed" | "archived") ??
+        "active"
+    );
+    setProjDesc(proj?.description ?? "");
+    setProjDue(proj?.due_date ?? "");
+    setProjectModalOpen(true);
+  }
+
+  function handleSaveProject(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
       try {
         await saveProjectAction({
+          id: editingProject?.id,
           title: projTitle,
           life_area: projArea,
+          status: projStatus,
           description: projDesc,
           due_date: projDue || null,
         });
-        setProjTitle("");
-        setProjDesc("");
-        setProjDue("");
         setProjectModalOpen(false);
-        toast.success("Проект создан");
+        toast.success(editingProject ? "Проект обновлён" : "Проект создан");
       } catch (err) {
         toast.error(
           err instanceof Error ? err.message : "Ошибка сохранения проекта"
         );
+      }
+    });
+  }
+
+  function handleConfirmDeleteProject() {
+    if (!deletingProjectConfirm) return;
+    const targetId = deletingProjectConfirm.id;
+    startTransition(async () => {
+      try {
+        await deleteProjectAction(targetId);
+        if (selectedProjectId === targetId) {
+          setSelectedProjectId(null);
+        }
+        setDeletingProjectConfirm(null);
+        toast.success("Проект удалён (задачи сохранены без проекта)");
+      } catch {
+        toast.error("Не удалось удалить проект");
       }
     });
   }
@@ -281,6 +408,9 @@ export function TasksView({
           type="button"
           onClick={() => {
             setEditingTask(task);
+            setModalDefaultDate(task.planned_date);
+            setModalDefaultTime(null);
+            setModalDefaultProjectId(task.project_id);
             setTaskModalOpen(true);
           }}
           className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
@@ -326,7 +456,10 @@ export function TasksView({
 
         <div className="flex shrink-0 items-center gap-1">
           {showDateBadge && task.planned_date ? (
-            <Badge variant="outline" className="hidden sm:inline-flex num-tabular">
+            <Badge
+              variant="outline"
+              className="hidden sm:inline-flex num-tabular"
+            >
               {formatDateShortRu(task.planned_date)}
             </Badge>
           ) : null}
@@ -342,6 +475,9 @@ export function TasksView({
             size="icon-sm"
             onClick={() => {
               setEditingTask(task);
+              setModalDefaultDate(task.planned_date);
+              setModalDefaultTime(null);
+              setModalDefaultProjectId(task.project_id);
               setTaskModalOpen(true);
             }}
             aria-label={`Редактировать «${task.title}»`}
@@ -367,6 +503,10 @@ export function TasksView({
     );
   }
 
+  const selectedProject = selectedProjectId
+    ? projectMap.get(selectedProjectId) ?? null
+    : null;
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
@@ -376,7 +516,7 @@ export function TasksView({
             Задачи и календарь
           </h1>
           <p className="text-sm text-muted-foreground">
-            Гибкие слоты с буфером дня, точное время встреч и контроль пересечений
+            Слоты дня, недельная сетка часов с историей и управление проектами
           </p>
         </div>
 
@@ -385,7 +525,7 @@ export function TasksView({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setProjectModalOpen(true)}
+            onClick={() => openProjectModal(null)}
             className="min-h-10 rounded-xl"
           >
             <FolderPlusIcon data-icon="inline-start" />
@@ -394,7 +534,7 @@ export function TasksView({
           <Button
             type="button"
             size="sm"
-            onClick={() => openNewTask({ date: todayDate, status: "todo" })}
+            onClick={() => openNewTask({ date: selectedDayIso, status: "todo" })}
             className="min-h-10 rounded-xl"
           >
             <PlusIcon data-icon="inline-start" />
@@ -403,165 +543,141 @@ export function TasksView({
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue={initialTab} className="flex flex-col gap-4">
-        <div className="overflow-x-auto pb-1">
-          <TabsList className="h-11 w-full justify-start sm:w-auto rounded-xl">
-            <TabsTrigger value="today" className="min-h-9 px-3.5">
-              Сегодня
-            </TabsTrigger>
-            <TabsTrigger value="week" className="min-h-9 px-3.5">
-              Неделя
-            </TabsTrigger>
-            <TabsTrigger value="waiting" className="min-h-9 px-3.5">
-              Ожидание ({waitingTasks.length})
-            </TabsTrigger>
-            <TabsTrigger value="all" className="min-h-9 px-3.5">
-              Все дела
-            </TabsTrigger>
-            <TabsTrigger value="projects" className="min-h-9 px-3.5">
-              Проекты
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      {/* Tabs (flush left, smooth horizontal touch scroll on iPhone) */}
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex flex-col gap-4"
+      >
+        <TabsList>
+          <TabsTrigger value="today">День</TabsTrigger>
+          <TabsTrigger value="week">Неделя</TabsTrigger>
+          <TabsTrigger value="waiting">
+            Ожидание ({waitingTasks.length})
+          </TabsTrigger>
+          <TabsTrigger value="all">Все дела</TabsTrigger>
+          <TabsTrigger value="projects">
+            Проекты ({projects.length})
+          </TabsTrigger>
+        </TabsList>
 
-        {/* TODAY TAB */}
+        {/* SINGLE DAY TAB (with past/future date switcher + compact corner summary) */}
         <TabsContent value="today" className="flex flex-col gap-4">
-          <Card className="rounded-2xl shadow-none">
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-base font-semibold">
-                    Баланс нагрузки на сегодня
-                  </CardTitle>
-                  <CardDescription>
-                    {dayPlan?.main_focus ||
-                      "План строится с запасом на непредвиденные дела"}
-                  </CardDescription>
-                </div>
-                <Badge
-                  variant={freeBeforeBuffer < 0 ? "destructive" : "secondary"}
-                  className="num-tabular"
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/80 bg-card px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                onClick={() =>
+                  setSelectedDayIso(addDaysToIsoDate(selectedDayIso, -1))
+                }
+                aria-label="Предыдущий день"
+                className="size-8 rounded-lg"
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <span className="px-2 text-sm font-semibold">
+                {selectedDayIso === todayDate
+                  ? `Сегодня · ${formatDateShortRu(selectedDayIso)}`
+                  : formatDateLongRu(selectedDayIso)}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                onClick={() =>
+                  setSelectedDayIso(addDaysToIsoDate(selectedDayIso, 1))
+                }
+                aria-label="Следующий день"
+                className="size-8 rounded-lg"
+              >
+                <ChevronRightIcon />
+              </Button>
+              {selectedDayIso !== todayDate ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setSelectedDayIso(todayDate)}
+                  className="ml-1 rounded-lg"
                 >
-                  {freeBeforeBuffer < 0
-                    ? `Перегруз ${formatMinutesRu(Math.abs(freeBeforeBuffer))}`
-                    : `До буфера свободно ${formatMinutesRu(freeBeforeBuffer)}`}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="grid grid-cols-3 gap-2.5 pt-0 text-xs sm:text-sm">
-              <div className="rounded-xl bg-muted/50 p-3">
-                <div className="text-muted-foreground">В слотах</div>
-                <div className="mt-0.5 font-semibold num-tabular">
-                  {formatMinutesRu(scheduledTodayMins)}
-                </div>
-              </div>
-              <div className="rounded-xl bg-muted/50 p-3">
-                <div className="text-muted-foreground">Буфер дня</div>
-                <div className="mt-0.5 font-semibold num-tabular">
-                  {formatMinutesRu(bufferMins)}
-                </div>
-              </div>
-              <div className="rounded-xl bg-muted/50 p-3">
-                <div className="text-muted-foreground">Всего окна</div>
-                <div className="mt-0.5 font-semibold num-tabular">
-                  {formatMinutesRu(availableMins)}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                  Сегодня
+                </Button>
+              ) : null}
+            </div>
 
-          {(["morning", "afternoon", "evening", "any"] as const).map((slotKey) => {
-            const slotTasks = todayTasks.filter((t) => t.day_slot === slotKey);
-            const SlotIcon = SLOT_META[slotKey].icon;
-            return (
-              <Card key={slotKey} className="rounded-2xl shadow-none">
-                <CardHeader className="flex flex-row items-center justify-between py-3.5">
-                  <div className="flex items-center gap-2">
-                    <SlotIcon className="size-4 text-primary" />
-                    <CardTitle className="text-base font-semibold">
-                      {SLOT_META[slotKey].label}
-                    </CardTitle>
-                    <Badge variant="secondary" className="num-tabular">
-                      {slotTasks.length}
-                    </Badge>
-                  </div>
-                  <span className="text-xs text-muted-foreground num-tabular">
-                    {formatMinutesRu(
-                      slotTasks.reduce((s, i) => s + (i.estimated_minutes ?? 0), 0)
+            <span className="text-xs text-muted-foreground num-tabular">
+              {formatMinutesRu(scheduledDayMins)} в плане · резерв{" "}
+              {formatMinutesRu(bufferMins)}
+            </span>
+          </div>
+
+          {(["morning", "afternoon", "evening", "any"] as const).map(
+            (slotKey) => {
+              const slotTasks = dayViewTasks.filter(
+                (t) => t.day_slot === slotKey
+              );
+              const SlotIcon = SLOT_META[slotKey].icon;
+              return (
+                <Card key={slotKey} className="rounded-2xl shadow-none">
+                  <CardHeader className="flex flex-row items-center justify-between py-3.5">
+                    <div className="flex items-center gap-2">
+                      <SlotIcon className="size-4 text-primary" />
+                      <CardTitle className="text-base font-semibold">
+                        {SLOT_META[slotKey].label}
+                      </CardTitle>
+                      <Badge variant="secondary" className="num-tabular">
+                        {slotTasks.length}
+                      </Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground num-tabular">
+                      {formatMinutesRu(
+                        slotTasks.reduce(
+                          (s, i) => s + (i.estimated_minutes ?? 0),
+                          0
+                        )
+                      )}
+                    </span>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {slotTasks.length === 0 ? (
+                      <div className="border-t border-border/60 px-4 py-4 text-sm text-muted-foreground">
+                        Свободный слот — оставлен под маневр или фокус.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-border/60 border-t border-border/60">
+                        {slotTasks.map((t) => renderTaskRow(t))}
+                      </div>
                     )}
-                  </span>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {slotTasks.length === 0 ? (
-                    <div className="border-t border-border/60 px-4 py-4 text-sm text-muted-foreground">
-                      Свободный слот — оставлен под маневр или фокус.
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-border/60 border-t border-border/60">
-                      {slotTasks.map((t) => renderTaskRow(t))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+                  </CardContent>
+                </Card>
+              );
+            }
+          )}
         </TabsContent>
 
-        {/* WEEK TAB */}
-        <TabsContent value="week" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {weekDates.map((isoDate, idx) => {
-            const dayItems = sortTasksChronologically(
-              optimisticTasks.filter(
-                (t) => t.planned_date === isoDate && t.status !== "waiting"
-              )
-            );
-            const dayLoad = dayItems
-              .filter((t) => t.status !== "done")
-              .reduce((s, t) => s + (t.estimated_minutes ?? 30), 0);
-            const maxSafe = Math.max(
-              defaultAvailableMinutes - defaultBufferMinutes,
-              60
-            );
-
-            return (
-              <Card key={isoDate} className="rounded-2xl shadow-none">
-                <CardHeader className="flex flex-row items-center justify-between pb-3">
-                  <div className="flex flex-col gap-0.5">
-                    <CardTitle className="text-base font-semibold">
-                      {idx === 0
-                        ? `Сегодня · ${formatDateShortRu(isoDate)}`
-                        : formatDateLongRu(isoDate)}
-                    </CardTitle>
-                    <CardDescription className="num-tabular">
-                      Запланировано {formatMinutesRu(dayLoad)} (безопасный лимит{" "}
-                      {formatMinutesRu(maxSafe)})
-                    </CardDescription>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => openNewTask({ date: isoDate, status: "todo" })}
-                    aria-label="Добавить в этот день"
-                  >
-                    <PlusIcon />
-                  </Button>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {dayItems.length === 0 ? (
-                    <div className="border-t border-border/60 px-4 py-4 text-sm text-muted-foreground">
-                      Окно свободно.
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-border/60 border-t border-border/60">
-                      {dayItems.map((t) => renderTaskRow(t))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+        {/* WEEKLY TIME-BLOCK CALENDAR TAB */}
+        <TabsContent value="week">
+          <WeekCalendarGrid
+            todayDate={todayDate}
+            anchorDate={weekAnchorIso}
+            onChangeAnchorDate={handleChangeWeekAnchor}
+            tasks={fetchedWeekTasks ?? optimisticTasks}
+            projects={projects}
+            loading={weekLoading}
+            onToggleTask={handleToggle}
+            onEditTask={(t) => {
+              setEditingTask(t);
+              setModalDefaultDate(t.planned_date);
+              setModalDefaultTime(null);
+              setModalDefaultProjectId(t.project_id);
+              setTaskModalOpen(true);
+            }}
+            onCreateAtCell={(dateIso, timeStr) =>
+              openNewTask({ date: dateIso, time: timeStr ?? null, status: "todo" })
+            }
+          />
         </TabsContent>
 
         {/* WAITING TAB */}
@@ -697,48 +813,188 @@ export function TasksView({
           </Card>
         </TabsContent>
 
-        {/* PROJECTS TAB */}
-        <TabsContent
-          value="projects"
-          className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
-        >
-          {projects.map((proj) => {
-            const pTasks = optimisticTasks.filter((t) => t.project_id === proj.id);
-            const openCount = pTasks.filter((t) => t.status !== "done").length;
-            const doneCount = pTasks.filter((t) => t.status === "done").length;
-
-            return (
-              <Card
-                key={proj.id}
-                className="flex flex-col justify-between rounded-2xl shadow-none"
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-2">
+        {/* CLICKABLE PROJECTS TAB WITH FULL EDIT & DELETE */}
+        <TabsContent value="projects" className="flex flex-col gap-4">
+          {selectedProject ? (
+            <Card className="rounded-2xl shadow-none">
+              <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedProjectId(null)}
+                      className="-ml-2 h-8 rounded-lg px-2 text-muted-foreground hover:text-foreground"
+                    >
+                      <ArrowLeftIcon data-icon="inline-start" />
+                      Все проекты
+                    </Button>
                     <Badge variant="secondary">
-                      {LIFE_AREA_LABELS[proj.life_area as LifeArea] ??
-                        proj.life_area}
+                      {LIFE_AREA_LABELS[
+                        selectedProject.life_area as LifeArea
+                      ] ?? selectedProject.life_area}
                     </Badge>
-                    {proj.due_date ? (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground num-tabular">
-                        <CalendarDaysIcon className="size-3.5" />
-                        {formatDateShortRu(proj.due_date)}
-                      </span>
-                    ) : null}
+                    <Badge variant="outline">
+                      {PROJECT_STATUS_LABELS[selectedProject.status] ??
+                        selectedProject.status}
+                    </Badge>
                   </div>
-                  <CardTitle className="pt-1 text-base font-semibold">
-                    {proj.title}
+                  <CardTitle className="text-lg font-semibold">
+                    {selectedProject.title}
                   </CardTitle>
-                  {proj.description ? (
-                    <CardDescription>{proj.description}</CardDescription>
+                  {selectedProject.description ? (
+                    <CardDescription>
+                      {selectedProject.description}
+                    </CardDescription>
                   ) : null}
-                </CardHeader>
-                <CardContent className="flex items-center justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground">
-                  <span className="num-tabular">Активных: {openCount}</span>
-                  <span className="num-tabular">Завершено: {doneCount}</span>
-                </CardContent>
-              </Card>
-            );
-          })}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openProjectModal(selectedProject)}
+                    className="min-h-9 rounded-xl"
+                  >
+                    <PencilIcon data-icon="inline-start" />
+                    Изменить проект
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() =>
+                      openNewTask({
+                        date: todayDate,
+                        projectId: selectedProject.id,
+                        status: "todo",
+                      })
+                    }
+                    className="min-h-9 rounded-xl"
+                  >
+                    <PlusIcon data-icon="inline-start" />
+                    Задача в проект
+                  </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-0">
+                {(() => {
+                  const pTasks = sortTasksChronologically(
+                    optimisticTasks.filter(
+                      (t) =>
+                        t.project_id === selectedProject.id &&
+                        t.status !== "cancelled"
+                    )
+                  );
+                  if (pTasks.length === 0) {
+                    return (
+                      <div className="border-t border-border/60 p-6 text-center text-sm text-muted-foreground">
+                        В этом проекте пока нет задач. Нажми «Задача в проект», чтобы добавить первый шаг.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="divide-y divide-border/60 border-t border-border/60">
+                      {pTasks.map((t) => renderTaskRow(t, true))}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {projects.map((proj) => {
+                const pTasks = optimisticTasks.filter(
+                  (t) => t.project_id === proj.id && t.status !== "cancelled"
+                );
+                const openCount = pTasks.filter(
+                  (t) => t.status !== "done"
+                ).length;
+                const doneCount = pTasks.filter(
+                  (t) => t.status === "done"
+                ).length;
+
+                return (
+                  <Card
+                    key={proj.id}
+                    onClick={() => setSelectedProjectId(proj.id)}
+                    className="group flex cursor-pointer flex-col justify-between rounded-2xl shadow-none transition-colors hover:border-primary/40 hover:bg-muted/25"
+                  >
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="secondary">
+                            {LIFE_AREA_LABELS[proj.life_area as LifeArea] ??
+                              proj.life_area}
+                          </Badge>
+                          {proj.status !== "active" ? (
+                            <Badge variant="outline">
+                              {PROJECT_STATUS_LABELS[proj.status] ??
+                                proj.status}
+                            </Badge>
+                          ) : null}
+                        </div>
+
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-0.5"
+                        >
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => openProjectModal(proj)}
+                            aria-label={`Редактировать проект «${proj.title}»`}
+                            title="Редактировать проект"
+                            className="size-8 rounded-lg text-muted-foreground hover:text-foreground"
+                          >
+                            <PencilIcon className="size-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => setDeletingProjectConfirm(proj)}
+                            aria-label={`Удалить проект «${proj.title}»`}
+                            title="Удалить проект"
+                            className="size-8 rounded-lg text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <CardTitle className="pt-1 text-base font-semibold group-hover:text-primary">
+                        {proj.title}
+                      </CardTitle>
+                      {proj.description ? (
+                        <CardDescription>{proj.description}</CardDescription>
+                      ) : null}
+                    </CardHeader>
+
+                    <CardContent className="flex items-center justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-3 num-tabular">
+                        <span>Активных: {openCount}</span>
+                        <span>Готово: {doneCount}</span>
+                      </div>
+                      {proj.due_date ? (
+                        <span className="flex items-center gap-1 num-tabular">
+                          <CalendarDaysIcon className="size-3.5" />
+                          {formatDateShortRu(proj.due_date)}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-foreground">
+                          Открыть
+                        </span>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -749,17 +1005,24 @@ export function TasksView({
         task={editingTask}
         projects={projects}
         defaultPlannedDate={modalDefaultDate}
+        defaultScheduledTime={modalDefaultTime}
+        defaultProjectId={modalDefaultProjectId}
         defaultStatus={modalDefaultStatus}
+        onSaved={() => {
+          if (fetchedWeekTasks) {
+            void handleChangeWeekAnchor(weekAnchorIso);
+          }
+        }}
       />
 
-      {/* New Project Modal (Vaul Drawer on iPhone) */}
+      {/* Create / Edit Project Modal */}
       <ResponsiveModal
         open={projectModalOpen}
         onOpenChange={setProjectModalOpen}
-        title="Новый проект"
+        title={editingProject ? "Редактировать проект" : "Новый проект"}
         description="Сгруппируй связанные задачи вокруг одного запуска, учёбы или сферы жизни."
       >
-        <form onSubmit={handleCreateProject} className="flex flex-col gap-4">
+        <form onSubmit={handleSaveProject} className="flex flex-col gap-4">
           <FieldGroup className="gap-3.5">
             <Field>
               <FieldLabel htmlFor="proj-title">Название проекта</FieldLabel>
@@ -767,7 +1030,7 @@ export function TasksView({
                 id="proj-title"
                 value={projTitle}
                 onChange={(e) => setProjTitle(e.target.value)}
-                placeholder="Например: Осенний запуск продукта"
+                placeholder="Например: Диплом или Осенний запуск продукта"
                 required
                 className="min-h-11"
               />
@@ -775,7 +1038,7 @@ export function TasksView({
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field>
-                <FieldLabel>Сфера жизни</FieldLabel>
+                <FieldLabel>Сфера жизни (цвет в календаре)</FieldLabel>
                 <Select
                   value={projArea}
                   onValueChange={(v) => setProjArea(v as LifeArea)}
@@ -785,27 +1048,51 @@ export function TasksView({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="work">Работа</SelectItem>
-                      <SelectItem value="launch">Запуск</SelectItem>
-                      <SelectItem value="study">Учёба</SelectItem>
-                      <SelectItem value="personal">Личное</SelectItem>
-                      <SelectItem value="health">Здоровье</SelectItem>
+                      <SelectItem value="work">Работа (кобальт)</SelectItem>
+                      <SelectItem value="launch">Запуск (изумруд)</SelectItem>
+                      <SelectItem value="study">Учёба (ирис)</SelectItem>
+                      <SelectItem value="personal">Личное (охра)</SelectItem>
+                      <SelectItem value="health">Здоровье (терракота)</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="proj-due">Целевой срок</FieldLabel>
-                <Input
-                  id="proj-due"
-                  type="date"
-                  value={projDue}
-                  onChange={(e) => setProjDue(e.target.value)}
-                  className="min-h-11 num-tabular"
-                />
+                <FieldLabel>Статус проекта</FieldLabel>
+                <Select
+                  value={projStatus}
+                  onValueChange={(v) =>
+                    setProjStatus(
+                      v as "active" | "on_hold" | "completed" | "archived"
+                    )
+                  }
+                >
+                  <SelectTrigger className="min-h-11 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="active">Активен</SelectItem>
+                      <SelectItem value="on_hold">На паузе</SelectItem>
+                      <SelectItem value="completed">Завершён</SelectItem>
+                      <SelectItem value="archived">В архив</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </Field>
             </div>
+
+            <Field>
+              <FieldLabel htmlFor="proj-due">Целевой срок</FieldLabel>
+              <Input
+                id="proj-due"
+                type="date"
+                value={projDue}
+                onChange={(e) => setProjDue(e.target.value)}
+                className="min-h-11 num-tabular"
+              />
+            </Field>
 
             <Field>
               <FieldLabel htmlFor="proj-desc">Критерий результата</FieldLabel>
@@ -820,9 +1107,42 @@ export function TasksView({
           </FieldGroup>
 
           <Button type="submit" className="min-h-11 w-full rounded-xl">
-            Создать проект
+            {editingProject ? "Сохранить изменения" : "Создать проект"}
           </Button>
         </form>
+      </ResponsiveModal>
+
+      {/* Delete Project Confirmation Modal */}
+      <ResponsiveModal
+        open={Boolean(deletingProjectConfirm)}
+        onOpenChange={(open) => {
+          if (!open) setDeletingProjectConfirm(null);
+        }}
+        title="Удалить проект?"
+        description={
+          deletingProjectConfirm
+            ? `Проект «${deletingProjectConfirm.title}» будет удалён. Все задачи внутри него останутся в списке дел без привязки к проекту.`
+            : undefined
+        }
+      >
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setDeletingProjectConfirm(null)}
+            className="min-h-11 rounded-xl"
+          >
+            Отмена
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleConfirmDeleteProject}
+            className="min-h-11 rounded-xl"
+          >
+            Удалить проект
+          </Button>
+        </div>
       </ResponsiveModal>
     </div>
   );

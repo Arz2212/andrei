@@ -47,7 +47,10 @@ interface TaskFormModalProps {
   task: Task | null;
   projects: Project[];
   defaultPlannedDate?: string | null;
+  defaultScheduledTime?: string | null;
+  defaultProjectId?: number | null;
   defaultStatus?: TaskStatus;
+  onSaved?: () => void;
 }
 
 export function TaskFormModal({
@@ -56,7 +59,10 @@ export function TaskFormModal({
   task,
   projects,
   defaultPlannedDate,
+  defaultScheduledTime,
+  defaultProjectId,
   defaultStatus = "todo",
+  onSaved,
 }: TaskFormModalProps) {
   const [pending, startTransition] = React.useTransition();
 
@@ -85,9 +91,21 @@ export function TaskFormModal({
       setPriority(String(task?.priority ?? 2));
       setPlannedDate(task?.planned_date ?? defaultPlannedDate ?? "");
       setDaySlot((task?.day_slot as DaySlot) ?? "any");
-      setEstimatedMinutes(task?.estimated_minutes ? String(task.estimated_minutes) : "");
+      setEstimatedMinutes(
+        task?.estimated_minutes
+          ? String(task.estimated_minutes)
+          : defaultScheduledTime
+            ? "60"
+            : ""
+      );
       setDueDate(task?.due_date ?? "");
-      setProjectId(task?.project_id ? String(task.project_id) : "none");
+      setProjectId(
+        task?.project_id
+          ? String(task.project_id)
+          : defaultProjectId
+            ? String(defaultProjectId)
+            : "none"
+      );
       setIsMeeting(Boolean(task?.is_meeting));
       setWaitingPerson(task?.waiting_on_person ?? "");
       setWaitingContext(task?.waiting_context ?? "");
@@ -95,7 +113,10 @@ export function TaskFormModal({
       setConflicts([]);
 
       if (task?.scheduled_start_at) {
-        const parts = extractLocalTimeParts(task.scheduled_start_at, "Europe/Moscow");
+        const parts = extractLocalTimeParts(
+          task.scheduled_start_at,
+          "Europe/Moscow"
+        );
         setScheduledTime(parts.timeStr);
         if (
           task.reminder_sent_at === REMINDER_DISABLED_SENTINEL ||
@@ -106,11 +127,18 @@ export function TaskFormModal({
           setRemindOption(String(task.remind_before_minutes ?? 15));
         }
       } else {
-        setScheduledTime("");
+        setScheduledTime(defaultScheduledTime ?? "");
         setRemindOption("15");
       }
     }
-  }, [open, task, defaultPlannedDate, defaultStatus]);
+  }, [
+    open,
+    task,
+    defaultPlannedDate,
+    defaultScheduledTime,
+    defaultProjectId,
+    defaultStatus,
+  ]);
 
   // Live time conflict check whenever date + clock time change
   React.useEffect(() => {
@@ -124,7 +152,11 @@ export function TaskFormModal({
         const found = await checkTaskConflictAction({
           plannedDate,
           startTime: scheduledTime,
-          durationMinutes: estimatedMinutes ? Number(estimatedMinutes) : isMeeting ? 60 : 30,
+          durationMinutes: estimatedMinutes
+            ? Number(estimatedMinutes)
+            : isMeeting
+              ? 60
+              : 30,
           isMeeting,
           excludeTaskId: task?.id,
         });
@@ -173,9 +205,12 @@ export function TaskFormModal({
           follow_up_at: followUpDate ? `${followUpDate}T10:00:00` : null,
         });
         toast.success(task ? "Задача обновлена" : "Задача создана");
+        onSaved?.();
         onOpenChange(false);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Ошибка сохранения задачи");
+        toast.error(
+          err instanceof Error ? err.message : "Ошибка сохранения задачи"
+        );
       }
     });
   }
@@ -186,6 +221,7 @@ export function TaskFormModal({
       try {
         await deleteTaskAction(task.id);
         toast.success("Задача удалена");
+        onSaved?.();
         onOpenChange(false);
       } catch {
         toast.error("Не удалось удалить задачу");
@@ -259,7 +295,9 @@ export function TaskFormModal({
           {status === "waiting" ? (
             <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/40 p-3.5">
               <Field>
-                <FieldLabel htmlFor="waiting-person">От кого ждём ответ</FieldLabel>
+                <FieldLabel htmlFor="waiting-person">
+                  От кого ждём ответ
+                </FieldLabel>
                 <Input
                   id="waiting-person"
                   value={waitingPerson}
@@ -280,7 +318,9 @@ export function TaskFormModal({
                   />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="waiting-followup">Когда напомнить</FieldLabel>
+                  <FieldLabel htmlFor="waiting-followup">
+                    Когда напомнить
+                  </FieldLabel>
                   <Input
                     id="waiting-followup"
                     type="date"
@@ -308,7 +348,10 @@ export function TaskFormModal({
 
             <Field>
               <div className="flex items-center justify-between">
-                <FieldLabel htmlFor="task-clock-time" className="flex items-center gap-1">
+                <FieldLabel
+                  htmlFor="task-clock-time"
+                  className="flex items-center gap-1"
+                >
                   <ClockIcon className="size-3.5 text-muted-foreground" />
                   Время (МСК)
                 </FieldLabel>
@@ -358,7 +401,10 @@ export function TaskFormModal({
 
           {/* Meeting toggle + Telegram reminder lead time */}
           <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/80 bg-muted/30 p-3 sm:grid-cols-2">
-            <Field orientation="horizontal" className="items-center justify-between">
+            <Field
+              orientation="horizontal"
+              className="items-center justify-between"
+            >
               <FieldLabel htmlFor="task-is-meeting" className="font-normal">
                 Встреча / созвон ко времени
               </FieldLabel>
@@ -488,7 +534,8 @@ export function TaskFormModal({
           </Field>
         </FieldGroup>
 
-        <div className="flex items-center justify-between gap-3 pt-2">
+        {/* Sticky Footer inside scrollable modal body so buttons never clip */}
+        <div className="sticky bottom-0 z-10 -mx-1 mt-1 flex items-center justify-between gap-3 border-t border-border/70 bg-background/95 px-1 pt-3 pb-1 backdrop-blur-xs">
           {task ? (
             <Button
               type="button"
@@ -507,7 +554,7 @@ export function TaskFormModal({
           <Button
             type="submit"
             disabled={pending}
-            className="min-h-11 flex-1 sm:flex-initial sm:min-w-[180px] rounded-xl"
+            className="min-h-11 flex-1 sm:min-w-[180px] sm:flex-initial rounded-xl"
           >
             {pending ? (
               <>

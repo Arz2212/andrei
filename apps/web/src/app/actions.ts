@@ -10,25 +10,37 @@ import {
   createStateCheckin,
   createTask,
   deleteAssistantAgreement,
+  deleteDailyReview,
   deleteEveningCriterion,
+  deleteProject,
+  deleteStateCheckin,
   deleteTask,
   executePendingAction,
   findTimeConflicts,
   formatIsoDate,
-  saveDashboardWidgetOrder,
+  getDailyReview,
+  getDayPlan,
+  getDayPlansInRange,
+  getWeekBoundsIso,
+  listTasksInDateRange,
   toggleTaskDone,
   updateAssistantAgreement,
   updateAssistantSettings,
+  updateDashboardWidgetsLayout,
   updateOwnerProfile,
   updateProject,
+  updateStateCheckin,
   updateTask,
   upsertDailyReview,
   upsertDayPlan,
   upsertEveningCriterion,
+  type DailyReview,
+  type DashboardWidgetLayoutItem,
+  type DayPlan,
   type DaySlot,
   type LifeArea,
+  type Task,
   type TaskStatus,
-  type WidgetKey,
 } from "@life-os/db";
 import { getServerSupabase, requireOwnerSession } from "@/lib/supabase/server";
 
@@ -40,6 +52,53 @@ export async function signOutAction() {
   const db = await getServerSupabase();
   await db.auth.signOut();
   redirect("/login");
+}
+
+// ============================================================================
+// Calendar & Day/Week Range Fetchers (Past / Present / Future)
+// ============================================================================
+
+export async function fetchDayScheduleAction(dateIso: string): Promise<{
+  dateIso: string;
+  tasks: Task[];
+  dayPlan: DayPlan | null;
+}> {
+  const { db } = await requireOwnerSession();
+  const [tasks, dayPlan] = await Promise.all([
+    listTasksInDateRange(db, {
+      startDate: dateIso,
+      endDate: dateIso,
+      includeDone: true,
+    }),
+    getDayPlan(db, dateIso),
+  ]);
+  return { dateIso, tasks, dayPlan };
+}
+
+export async function fetchWeekScheduleAction(anchorDateIso: string): Promise<{
+  weekStart: string;
+  weekEnd: string;
+  dates: string[];
+  tasks: Task[];
+  dayPlans: DayPlan[];
+}> {
+  const { db } = await requireOwnerSession();
+  const bounds = getWeekBoundsIso(anchorDateIso);
+  const [tasks, dayPlans] = await Promise.all([
+    listTasksInDateRange(db, {
+      startDate: bounds.weekStart,
+      endDate: bounds.weekEnd,
+      includeDone: true,
+    }),
+    getDayPlansInRange(db, bounds.weekStart, bounds.weekEnd),
+  ]);
+  return {
+    weekStart: bounds.weekStart,
+    weekEnd: bounds.weekEnd,
+    dates: bounds.dates,
+    tasks,
+    dayPlans,
+  };
 }
 
 // ============================================================================
@@ -201,6 +260,7 @@ export async function saveProjectAction(payload: {
   life_area: LifeArea;
   description?: string | null;
   due_date?: string | null;
+  status?: "active" | "on_hold" | "completed" | "archived";
 }) {
   const { db, userId } = await requireOwnerSession();
   const title = payload.title.trim();
@@ -221,6 +281,7 @@ export async function saveProjectAction(payload: {
       description: payload.description?.trim() || null,
       due_date: payload.due_date || null,
       accent_token: accentMap[payload.life_area],
+      status: payload.status ?? "active",
     });
   } else {
     await createProject(db, {
@@ -230,9 +291,16 @@ export async function saveProjectAction(payload: {
       description: payload.description?.trim() || null,
       due_date: payload.due_date || null,
       accent_token: accentMap[payload.life_area],
+      status: payload.status ?? "active",
     });
   }
 
+  revalidateAll();
+}
+
+export async function deleteProjectAction(projectId: number) {
+  const { db } = await requireOwnerSession();
+  await deleteProject(db, projectId);
   revalidateAll();
 }
 
@@ -258,16 +326,10 @@ export async function saveDayPlanAction(payload: {
 // ============================================================================
 
 export async function saveDashboardWidgetsAction(
-  items: {
-    widget_key: WidgetKey;
-    is_visible: boolean;
-    desktop_order: number;
-    mobile_order: number;
-    desktop_col_span?: number;
-  }[]
+  items: DashboardWidgetLayoutItem[]
 ) {
   const { db, userId } = await requireOwnerSession();
-  await saveDashboardWidgetOrder(db, userId, items);
+  await updateDashboardWidgetsLayout(db, userId, items);
   revalidateAll();
 }
 
@@ -285,7 +347,7 @@ export async function cancelPendingActionWeb(actionId: number) {
 }
 
 // ============================================================================
-// State Pulse & Evening Split Review
+// State Pulse & Evening Split Review (Full CRUD)
 // ============================================================================
 
 export async function createStateCheckinAction(payload: {
@@ -306,6 +368,40 @@ export async function createStateCheckinAction(payload: {
     source: "web",
   });
   revalidateAll();
+}
+
+export async function updateStateCheckinAction(
+  id: number,
+  payload: {
+    mood_score: number;
+    energy_score: number;
+    tension_score?: number | null;
+    context_tags?: string[];
+    note?: string | null;
+  }
+) {
+  const { db } = await requireOwnerSession();
+  await updateStateCheckin(db, id, {
+    mood_score: payload.mood_score,
+    energy_score: payload.energy_score,
+    tension_score: payload.tension_score ?? null,
+    context_tags: payload.context_tags ?? [],
+    note: payload.note?.trim() || null,
+  });
+  revalidateAll();
+}
+
+export async function deleteStateCheckinAction(id: number) {
+  const { db } = await requireOwnerSession();
+  await deleteStateCheckin(db, id);
+  revalidateAll();
+}
+
+export async function fetchDailyReviewAction(
+  reviewDate: string
+): Promise<DailyReview | null> {
+  const { db } = await requireOwnerSession();
+  return getDailyReview(db, reviewDate);
 }
 
 export async function saveDailyReviewAction(payload: {
@@ -330,6 +426,12 @@ export async function saveDailyReviewAction(payload: {
     what_drained_energy: payload.what_drained_energy?.trim() || null,
     tomorrow_main_thing: payload.tomorrow_main_thing?.trim() || null,
   });
+  revalidateAll();
+}
+
+export async function deleteDailyReviewAction(reviewDateOrId: string | number) {
+  const { db } = await requireOwnerSession();
+  await deleteDailyReview(db, reviewDateOrId);
   revalidateAll();
 }
 
@@ -384,7 +486,13 @@ export async function saveAssistantSettingsAction(payload: {
 }
 
 export async function createAgreementAction(payload: {
-  scope: "general" | "planning" | "finance" | "health" | "nutrition" | "communication";
+  scope:
+    | "general"
+    | "planning"
+    | "finance"
+    | "health"
+    | "nutrition"
+    | "communication";
   rule_text: string;
 }) {
   const { db, userId } = await requireOwnerSession();

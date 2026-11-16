@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ShieldCheckIcon, Loader2Icon } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { BrandLogo } from "@/components/shell/brand-logo";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -53,9 +54,7 @@ export default function LoginPage() {
     <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10 safe-top safe-bottom">
       <div className="w-full max-w-[400px] flex flex-col gap-6">
         <div className="flex items-center gap-3 px-1">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold text-lg">
-            L
-          </div>
+          <BrandLogo size="lg" />
           <div className="flex flex-col">
             <span className="text-base font-semibold tracking-tight">Life OS</span>
             <span className="text-xs text-muted-foreground">

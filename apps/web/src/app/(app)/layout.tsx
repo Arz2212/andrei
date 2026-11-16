@@ -25,13 +25,15 @@ export default async function ProtectedAppLayout({
   const todayDate = formatIsoDate(new Date(), profile?.timezone ?? "Europe/Moscow");
 
   return (
-    <AppShell
-      todayDate={todayDate}
-      displayName={profile?.display_name ?? "Андрей"}
-      waitingCount={waitingTasks.length}
-      pendingActionsCount={pendingActions.length}
-    >
-      {children}
-    </AppShell>
+    <React.Suspense fallback={null}>
+      <AppShell
+        todayDate={todayDate}
+        displayName={profile?.display_name ?? "Андрей"}
+        waitingCount={waitingTasks.length}
+        pendingActionsCount={pendingActions.length}
+      >
+        {children}
+      </AppShell>
+    </React.Suspense>
   );
 }
