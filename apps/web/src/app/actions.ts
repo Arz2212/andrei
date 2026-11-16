@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
+  buildScheduledRangeFromClockTime,
   cancelPendingAction,
   createAssistantAgreement,
   createProject,
@@ -12,6 +13,7 @@ import {
   deleteEveningCriterion,
   deleteTask,
   executePendingAction,
+  findTimeConflicts,
   formatIsoDate,
   saveDashboardWidgetOrder,
   toggleTaskDone,
@@ -41,13 +43,54 @@ export async function signOutAction() {
 }
 
 // ============================================================================
-// Tasks, Projects & Day Plan Actions
+// Tasks, Exact Time Conflicts, Projects & Day Plan Actions
 // ============================================================================
 
 export async function toggleTaskAction(taskId: number, done: boolean) {
   const { db } = await requireOwnerSession();
   await toggleTaskDone(db, taskId, done);
   revalidateAll();
+}
+
+export interface ConflictPreviewItem {
+  id: number;
+  title: string;
+  timeRangeLabel: string;
+  plannedDate: string | null;
+}
+
+export async function checkTaskConflictAction(params: {
+  plannedDate: string;
+  startTime: string;
+  durationMinutes?: number | null;
+  isMeeting?: boolean;
+  excludeTaskId?: number;
+}): Promise<ConflictPreviewItem[]> {
+  if (!params.plannedDate || !/^\d{2}:\d{2}$/.test(params.startTime)) {
+    return [];
+  }
+  const { db } = await requireOwnerSession();
+  const range = buildScheduledRangeFromClockTime({
+    dateStr: params.plannedDate,
+    startTime: params.startTime,
+    durationMinutes: params.durationMinutes,
+    isMeeting: params.isMeeting,
+    timeZone: "Europe/Moscow",
+  });
+  const conflicts = await findTimeConflicts(db, {
+    startAt: range.scheduled_start_at,
+    endAt: range.scheduled_end_at,
+    durationMinutes: range.estimated_minutes,
+    isMeeting: params.isMeeting,
+    excludeTaskId: params.excludeTaskId,
+    timeZone: "Europe/Moscow",
+  });
+  return conflicts.map((c) => ({
+    id: c.task.id,
+    title: c.task.title,
+    timeRangeLabel: c.timeRangeLabel,
+    plannedDate: c.plannedDate,
+  }));
 }
 
 export interface SaveTaskPayload {
@@ -61,6 +104,9 @@ export interface SaveTaskPayload {
   estimated_minutes?: number | null;
   due_date?: string | null;
   project_id?: number | null;
+  scheduled_time?: string | null;
+  is_meeting?: boolean;
+  remind_before_minutes?: number | null;
   waiting_on_person?: string | null;
   waiting_context?: string | null;
   follow_up_at?: string | null;
@@ -73,20 +119,54 @@ export async function saveTaskAction(payload: SaveTaskPayload) {
 
   const status: TaskStatus = payload.status ?? "todo";
   const isWaiting = status === "waiting";
+  const isMeeting = Boolean(payload.is_meeting);
+  const rawTime = payload.scheduled_time?.trim() || null;
+
+  let scheduledStartAt: string | null = null;
+  let scheduledEndAt: string | null = null;
+  let plannedDate: string | null = payload.planned_date || null;
+  let daySlot: DaySlot = payload.day_slot ?? "any";
+  let estimatedMinutes: number | null =
+    payload.estimated_minutes && payload.estimated_minutes > 0
+      ? payload.estimated_minutes
+      : null;
+
+  if (rawTime && /^\d{2}:\d{2}$/.test(rawTime)) {
+    const baseDate = plannedDate || formatIsoDate();
+    const range = buildScheduledRangeFromClockTime({
+      dateStr: baseDate,
+      startTime: rawTime,
+      durationMinutes: estimatedMinutes ?? (isMeeting ? 60 : 30),
+      isMeeting,
+      timeZone: "Europe/Moscow",
+    });
+    scheduledStartAt = range.scheduled_start_at;
+    scheduledEndAt = range.scheduled_end_at;
+    plannedDate = range.planned_date;
+    daySlot = range.day_slot;
+    estimatedMinutes = range.estimated_minutes;
+  }
+
+  const remindBeforeMinutes = scheduledStartAt
+    ? payload.remind_before_minutes !== undefined
+      ? payload.remind_before_minutes
+      : 15
+    : null;
 
   const common = {
     title,
     notes: payload.notes?.trim() || null,
     status,
     priority: payload.priority ?? 2,
-    planned_date: payload.planned_date || null,
-    day_slot: payload.day_slot ?? "any",
-    estimated_minutes:
-      payload.estimated_minutes && payload.estimated_minutes > 0
-        ? payload.estimated_minutes
-        : null,
+    planned_date: plannedDate,
+    day_slot: daySlot,
+    estimated_minutes: estimatedMinutes,
     due_date: payload.due_date || null,
     project_id: payload.project_id || null,
+    scheduled_start_at: scheduledStartAt,
+    scheduled_end_at: scheduledEndAt,
+    is_meeting: isMeeting,
+    remind_before_minutes: remindBeforeMinutes,
     waiting_on_person: isWaiting ? payload.waiting_on_person?.trim() || null : null,
     waiting_context: isWaiting ? payload.waiting_context?.trim() || null : null,
     follow_up_at:

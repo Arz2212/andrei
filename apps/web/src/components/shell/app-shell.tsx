@@ -75,17 +75,22 @@ export function AppShell({
       {/* Desktop Sidebar (>= 1024px) */}
       <aside
         className={cn(
-          "hidden lg:flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
-          collapsed ? "w-[72px]" : "w-[252px]"
+          "hidden lg:sticky lg:top-0 lg:flex lg:h-dvh shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
+          collapsed ? "w-[68px]" : "w-[252px]"
         )}
       >
-        <div className="flex h-16 items-center justify-between px-4">
-          <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold">
-              L
-            </div>
-            {!collapsed ? (
-              <div className="flex flex-col truncate">
+        <div
+          className={cn(
+            "flex h-16 shrink-0 items-center",
+            collapsed ? "justify-center px-2" : "justify-between px-4"
+          )}
+        >
+          {!collapsed ? (
+            <Link href="/" className="flex min-w-0 items-center gap-2.5">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold">
+                L
+              </div>
+              <div className="flex min-w-0 flex-col">
                 <span className="truncate text-sm font-semibold tracking-tight">
                   Life OS
                 </span>
@@ -93,35 +98,52 @@ export function AppShell({
                   {displayName}
                 </span>
               </div>
-            ) : null}
-          </Link>
+            </Link>
+          ) : null}
 
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
+            size={collapsed ? "icon" : "icon-sm"}
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
+            title={collapsed ? "Развернуть меню" : "Свернуть меню"}
+            className={cn(collapsed && "size-10 rounded-xl")}
           >
             {collapsed ? <PanelLeftOpenIcon /> : <PanelLeftCloseIcon />}
           </Button>
         </div>
 
-        <div className="px-3 pb-3">
-          <Button
-            type="button"
-            onClick={() => setQuickOpen(true)}
-            className={cn(
-              "w-full rounded-xl",
-              collapsed ? "px-0 justify-center" : "justify-start"
-            )}
-          >
-            <PlusIcon data-icon="inline-start" />
-            {!collapsed ? "Быстрая запись" : null}
-          </Button>
+        <div className={cn("pb-3", collapsed ? "flex justify-center px-2" : "px-3")}>
+          {collapsed ? (
+            <Button
+              type="button"
+              size="icon"
+              onClick={() => setQuickOpen(true)}
+              aria-label="Быстрая запись"
+              title="Быстрая запись"
+              className="size-10 rounded-xl"
+            >
+              <PlusIcon />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={() => setQuickOpen(true)}
+              className="w-full justify-start rounded-xl"
+            >
+              <PlusIcon data-icon="inline-start" />
+              Быстрая запись
+            </Button>
+          )}
         </div>
 
-        <nav className="flex flex-1 flex-col gap-1 px-3 py-1">
+        <nav
+          className={cn(
+            "flex flex-1 flex-col gap-1 overflow-y-auto py-1",
+            collapsed ? "items-center px-2" : "px-3"
+          )}
+        >
           {PRIMARY_NAV.map((item) => {
             const Icon = item.icon;
             const active =
@@ -133,12 +155,16 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
+                title={collapsed ? item.label : undefined}
+                aria-label={collapsed ? item.label : undefined}
                 className={cn(
-                  "flex min-h-10 items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                  "flex items-center rounded-xl text-sm font-medium transition-colors",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                  collapsed && "justify-center px-0"
+                  collapsed
+                    ? "size-10 justify-center p-0"
+                    : "min-h-10 w-full justify-between px-3 py-2"
                 )}
               >
                 <span className="flex items-center gap-2.5 truncate">
@@ -157,7 +183,7 @@ export function AppShell({
             );
           })}
 
-          <div className="my-3">
+          <div className={cn("my-3", collapsed ? "w-8" : "w-full")}>
             <Separator />
           </div>
 
@@ -174,12 +200,16 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
+                title={collapsed ? `${item.label} (${item.stage})` : undefined}
+                aria-label={collapsed ? item.label : undefined}
                 className={cn(
-                  "flex min-h-9 items-center justify-between rounded-xl px-3 py-1.5 text-sm transition-colors",
+                  "flex items-center rounded-xl text-sm transition-colors",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                     : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                  collapsed && "justify-center px-0"
+                  collapsed
+                    ? "size-10 justify-center p-0"
+                    : "min-h-9 w-full justify-between px-3 py-1.5"
                 )}
               >
                 <span className="flex items-center gap-2.5 truncate">
@@ -196,7 +226,7 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="flex flex-col gap-2 border-t border-sidebar-border p-3">
+        <div className="flex shrink-0 flex-col gap-2 border-t border-sidebar-border p-3">
           {!collapsed ? (
             <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-2">
@@ -211,30 +241,48 @@ export function AppShell({
             </div>
           ) : null}
 
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-              className={cn("flex-1 rounded-xl", collapsed && "px-0")}
-              aria-label="Переключить тему"
-            >
-              {mounted && resolvedTheme === "dark" ? (
-                <SunIcon data-icon="inline-start" />
-              ) : (
-                <MoonIcon data-icon="inline-start" />
-              )}
-              {!collapsed ? (
+          <div
+            className={cn(
+              "flex items-center",
+              collapsed ? "flex-col gap-1.5" : "gap-1"
+            )}
+          >
+            {collapsed ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                className="size-10 rounded-xl"
+                aria-label="Переключить тему"
+                title={mounted && resolvedTheme === "dark" ? "Светлая тема" : "Тёмная тема"}
+              >
+                {mounted && resolvedTheme === "dark" ? <SunIcon /> : <MoonIcon />}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                className="flex-1 rounded-xl"
+                aria-label="Переключить тему"
+              >
+                {mounted && resolvedTheme === "dark" ? (
+                  <SunIcon data-icon="inline-start" />
+                ) : (
+                  <MoonIcon data-icon="inline-start" />
+                )}
                 <span>{mounted && resolvedTheme === "dark" ? "Светлая" : "Тёмная"}</span>
-              ) : null}
-            </Button>
+              </Button>
+            )}
 
             <form action={signOutAction}>
               <Button
                 type="submit"
                 variant="ghost"
-                size="icon-sm"
+                size={collapsed ? "icon" : "icon-sm"}
+                className={cn(collapsed && "size-10 rounded-xl")}
                 aria-label="Выйти из системы"
                 title="Выйти"
               >
@@ -248,13 +296,13 @@ export function AppShell({
       {/* Main Content Area */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 border-b border-border/80 bg-background/85 backdrop-blur-xl safe-top">
+        <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-md safe-top">
           <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-3 px-4 lg:h-16 lg:px-8">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold text-sm lg:hidden">
                 L
               </div>
-              <div className="flex flex-col min-w-0">
+              <div className="flex min-w-0 flex-col">
                 <span className="truncate text-sm font-semibold tracking-tight lg:text-base">
                   {formattedToday}
                 </span>
@@ -304,7 +352,7 @@ export function AppShell({
       {/* Mobile / iPhone Frosted Bottom Tabbar (< 1024px) */}
       <nav
         aria-label="Нижняя навигация"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/85 backdrop-blur-xl lg:hidden pb-[env(safe-area-inset-bottom,0px)]"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/90 backdrop-blur-xl lg:hidden pb-[env(safe-area-inset-bottom,0px)]"
       >
         <div className="mx-auto grid max-w-md grid-cols-5 items-center px-2 py-1.5">
           {PRIMARY_NAV.slice(0, 2).map((item) => {

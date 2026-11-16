@@ -57,7 +57,8 @@ export async function replyFormatted(
 
 export function buildHitlKeyboard(actionId: number): InlineKeyboard {
   return new InlineKeyboard()
-    .text("✅ Подтвердить", `hitl:confirm:${actionId}`)
+    .text("✅ Подтвердить запись", `hitl:confirm:${actionId}`)
+    .row()
     .text("✏️ Исправить", `hitl:edit:${actionId}`)
     .text("❌ Отмена", `hitl:cancel:${actionId}`);
 }

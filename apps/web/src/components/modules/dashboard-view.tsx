@@ -4,32 +4,33 @@ import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
-  SlidersHorizontalIcon,
-  PlusIcon,
-  ClockIcon,
-  ArrowUpIcon,
   ArrowDownIcon,
+  ArrowUpIcon,
   CheckIcon,
-  XIcon,
-  SparklesIcon,
-  WalletIcon,
+  ClockIcon,
   HourglassIcon,
-  ZapIcon,
+  LayersIcon,
+  MoonStarIcon,
+  PlusIcon,
+  SlidersHorizontalIcon,
+  SparklesIcon,
   SunIcon,
   SunsetIcon,
-  MoonStarIcon,
-  LayersIcon,
+  WalletIcon,
+  XIcon,
+  ZapIcon,
 } from "lucide-react";
-import type {
-  DashboardWidget,
-  DayPlan,
-  FinanceBalanceSummary,
-  PendingAction,
-  Project,
-  StateCheckin,
-  Task,
-  UserProfile,
-  WidgetKey,
+import {
+  formatTaskTimeRange,
+  type DashboardWidget,
+  type DayPlan,
+  type FinanceBalanceSummary,
+  type PendingAction,
+  type Project,
+  type StateCheckin,
+  type Task,
+  type UserProfile,
+  type WidgetKey,
 } from "@life-os/db";
 import {
   cancelPendingActionWeb,
@@ -197,7 +198,9 @@ export function DashboardView({
   }, [initialOrderedWidgets]);
 
   // Buffer & capacity math
-  const activeTodayTasks = optimisticTasks.filter((t) => t.status !== "done" && t.status !== "cancelled");
+  const activeTodayTasks = optimisticTasks.filter(
+    (t) => t.status !== "done" && t.status !== "cancelled"
+  );
   const doneTodayCount = optimisticTasks.filter((t) => t.status === "done").length;
   const scheduledMinutes = activeTodayTasks.reduce(
     (sum, t) => sum + (t.estimated_minutes ?? 30),
@@ -320,6 +323,10 @@ export function DashboardView({
       case "now_focus": {
         const topTask =
           activeTodayTasks.find((t) => t.priority === 1) ?? activeTodayTasks[0];
+        const topTimeRange = topTask
+          ? formatTaskTimeRange(topTask, "Europe/Moscow")
+          : null;
+
         return (
           <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
             <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3">
@@ -362,6 +369,12 @@ export function DashboardView({
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge>Главный шаг</Badge>
+                      {topTimeRange ? (
+                        <Badge variant="outline" className="gap-1 num-tabular">
+                          <ClockIcon className="size-3 text-primary" />
+                          {topTimeRange}
+                        </Badge>
+                      ) : null}
                       {topTask.estimated_minutes ? (
                         <span className="text-xs text-muted-foreground num-tabular">
                           {formatMinutesRu(topTask.estimated_minutes)}
@@ -505,7 +518,7 @@ export function DashboardView({
                   Слоты сегодняшнего дня
                 </CardTitle>
                 <CardDescription>
-                  Гибкие окна без хрупкой поминутной сетки
+                  Гибкие окна и точные встречи по времени
                 </CardDescription>
               </div>
               <Button
@@ -530,7 +543,20 @@ export function DashboardView({
                 </div>
               ) : (
                 groups.map((grp) => {
-                  const items = optimisticTasks.filter((t) => t.day_slot === grp.key);
+                  const items = optimisticTasks
+                    .filter((t) => t.day_slot === grp.key)
+                    .sort((a, b) => {
+                      if (a.scheduled_start_at && b.scheduled_start_at) {
+                        return (
+                          Date.parse(a.scheduled_start_at) -
+                          Date.parse(b.scheduled_start_at)
+                        );
+                      }
+                      if (a.scheduled_start_at) return -1;
+                      if (b.scheduled_start_at) return 1;
+                      return a.priority - b.priority;
+                    });
+
                   if (items.length === 0) return null;
                   const SlotIcon = grp.icon;
                   return (
@@ -542,7 +568,10 @@ export function DashboardView({
                         </span>
                         <span className="num-tabular">
                           {formatMinutesRu(
-                            items.reduce((s, i) => s + (i.estimated_minutes ?? 0), 0)
+                            items.reduce(
+                              (s, i) => s + (i.estimated_minutes ?? 0),
+                              0
+                            )
                           )}
                         </span>
                       </div>
@@ -553,6 +582,11 @@ export function DashboardView({
                           const proj = task.project_id
                             ? projectMap.get(task.project_id)
                             : null;
+                          const timeRange = formatTaskTimeRange(
+                            task,
+                            "Europe/Moscow"
+                          );
+
                           return (
                             <div
                               key={task.id}
@@ -574,16 +608,28 @@ export function DashboardView({
                                   setEditingTask(task);
                                   setTaskModalOpen(true);
                                 }}
-                                className="flex min-w-0 flex-1 flex-col items-start text-left"
+                                className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
                               >
-                                <span
-                                  className={cn(
-                                    "w-full truncate text-sm font-medium",
-                                    isDone && "line-through text-muted-foreground"
-                                  )}
-                                >
-                                  {task.title}
-                                </span>
+                                <div className="flex w-full flex-wrap items-center gap-1.5">
+                                  {timeRange ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="gap-1 border-primary/35 bg-accent/55 text-foreground num-tabular"
+                                    >
+                                      <ClockIcon className="size-3 text-primary" />
+                                      {timeRange}
+                                    </Badge>
+                                  ) : null}
+                                  <span
+                                    className={cn(
+                                      "truncate text-sm font-medium",
+                                      isDone &&
+                                        "line-through text-muted-foreground"
+                                    )}
+                                  >
+                                    {task.title}
+                                  </span>
+                                </div>
                                 {proj ? (
                                   <span className="text-xs text-muted-foreground">
                                     {proj.title}
@@ -890,7 +936,7 @@ export function DashboardView({
               key={item.widget_key}
               className="flex items-center justify-between gap-3 rounded-xl border border-border px-3.5 py-2.5"
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex min-w-0 items-center gap-3">
                 <Switch
                   checked={item.is_visible}
                   onCheckedChange={(checked) =>
@@ -907,7 +953,7 @@ export function DashboardView({
                 </span>
               </div>
 
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex shrink-0 items-center gap-1">
                 <Button
                   type="button"
                   variant="ghost"

@@ -11,6 +11,8 @@ export const TaskStatusSchema = z.enum([
 ]);
 export const LifeAreaSchema = z.enum(["work", "study", "launch", "personal", "health"]);
 
+export const ClockTimeSchema = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/);
+
 export const CreateTaskInputSchema = z.object({
   title: z.string().min(1).max(400),
   notes: z.string().max(4000).nullable().optional(),
@@ -22,6 +24,12 @@ export const CreateTaskInputSchema = z.object({
   day_slot: DaySlotSchema.default("any"),
   estimated_minutes: z.number().int().min(5).max(720).nullable().optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  scheduled_start_at: z.string().nullable().optional(),
+  scheduled_end_at: z.string().nullable().optional(),
+  scheduled_time: ClockTimeSchema.nullable().optional(),
+  scheduled_end_time: ClockTimeSchema.nullable().optional(),
+  is_meeting: z.boolean().default(false),
+  remind_before_minutes: z.number().int().min(0).max(1440).nullable().optional(),
   waiting_on_person: z.string().max(200).nullable().optional(),
   waiting_context: z.string().max(1000).nullable().optional(),
   waiting_since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),

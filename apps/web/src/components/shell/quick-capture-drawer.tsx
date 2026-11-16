@@ -2,12 +2,21 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { CheckCircle2Icon, HeartPulseIcon, SparklesIcon, Loader2Icon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  CheckCircle2Icon,
+  ClockIcon,
+  HeartPulseIcon,
+  Loader2Icon,
+  SparklesIcon,
+} from "lucide-react";
 import type { DaySlot } from "@life-os/db";
 import {
+  checkTaskConflictAction,
   createAgreementAction,
   createStateCheckinAction,
   saveTaskAction,
+  type ConflictPreviewItem,
 } from "@/app/actions";
 import {
   Drawer,
@@ -19,6 +28,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
@@ -38,9 +49,13 @@ export function QuickCaptureDrawer({
 
   // Task state
   const [taskTitle, setTaskTitle] = React.useState("");
+  const [plannedDate, setPlannedDate] = React.useState(todayDate);
+  const [scheduledTime, setScheduledTime] = React.useState("");
+  const [isMeeting, setIsMeeting] = React.useState(false);
   const [slot, setSlot] = React.useState<DaySlot>("any");
   const [minutes, setMinutes] = React.useState("30");
-  const [isToday, setIsToday] = React.useState<"today" | "inbox">("today");
+  const [isToday, setIsToday] = React.useState<"scheduled" | "inbox">("scheduled");
+  const [conflicts, setConflicts] = React.useState<ConflictPreviewItem[]>([]);
 
   // Pulse state
   const [energy, setEnergy] = React.useState("4");
@@ -50,21 +65,61 @@ export function QuickCaptureDrawer({
   // Rule state
   const [ruleText, setRuleText] = React.useState("");
 
+  React.useEffect(() => {
+    if (open) {
+      setPlannedDate(todayDate);
+      setConflicts([]);
+    }
+  }, [open, todayDate]);
+
+  React.useEffect(() => {
+    if (!open || mode !== "task" || isToday !== "scheduled" || !scheduledTime || !plannedDate) {
+      setConflicts([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await checkTaskConflictAction({
+          plannedDate,
+          startTime: scheduledTime,
+          durationMinutes: Number(minutes) || (isMeeting ? 60 : 30),
+          isMeeting,
+        });
+        if (!cancelled) setConflicts(res);
+      } catch {
+        if (!cancelled) setConflicts([]);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, mode, isToday, plannedDate, scheduledTime, minutes, isMeeting]);
+
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
       try {
         if (mode === "task") {
           if (!taskTitle.trim()) return;
+          const useScheduled = isToday === "scheduled";
           await saveTaskAction({
             title: taskTitle,
-            planned_date: isToday === "today" ? todayDate : null,
+            planned_date: useScheduled ? plannedDate : null,
+            scheduled_time: useScheduled && scheduledTime ? scheduledTime : null,
+            is_meeting: useScheduled ? isMeeting : false,
+            remind_before_minutes:
+              useScheduled && scheduledTime ? (isMeeting ? 15 : 0) : null,
             day_slot: slot,
             estimated_minutes: Number(minutes) || null,
-            status: isToday === "today" ? "todo" : "inbox",
+            status: useScheduled ? "todo" : "inbox",
             priority: 2,
           });
           setTaskTitle("");
+          setScheduledTime("");
+          setIsMeeting(false);
           toast.success("Задача добавлена");
         } else if (mode === "state") {
           await createStateCheckinAction({
@@ -92,7 +147,7 @@ export function QuickCaptureDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="mx-auto w-full max-w-lg rounded-t-2xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <DrawerContent className="mx-auto max-h-[90dvh] w-full max-w-lg rounded-t-2xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <DrawerHeader className="px-0 text-left">
           <DrawerTitle className="text-lg font-semibold tracking-tight">
             Быстрая запись
@@ -102,7 +157,7 @@ export function QuickCaptureDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="flex flex-col gap-4 pt-1 pb-2">
+        <div className="flex flex-col gap-4 overflow-y-auto pt-1 pb-2">
           <ToggleGroup
             type="single"
             value={mode}
@@ -134,7 +189,7 @@ export function QuickCaptureDrawer({
                   <FieldLabel htmlFor="qc-task-title">Что нужно сделать</FieldLabel>
                   <Input
                     id="qc-task-title"
-                    placeholder="Например: Проверить смету по запуску"
+                    placeholder="Например: Встреча с научруком или Позвонить Даше"
                     value={taskTitle}
                     onChange={(e) => setTaskTitle(e.target.value)}
                     required
@@ -149,14 +204,14 @@ export function QuickCaptureDrawer({
                       type="single"
                       value={isToday}
                       onValueChange={(v) => {
-                        if (v === "today" || v === "inbox") setIsToday(v);
+                        if (v === "scheduled" || v === "inbox") setIsToday(v);
                       }}
                       variant="outline"
                       spacing={1}
                       className="w-full"
                     >
-                      <ToggleGroupItem value="today" className="min-h-11 flex-1">
-                        Сегодня
+                      <ToggleGroupItem value="scheduled" className="min-h-11 flex-1">
+                        В план
                       </ToggleGroupItem>
                       <ToggleGroupItem value="inbox" className="min-h-11 flex-1">
                         Входящие
@@ -165,7 +220,7 @@ export function QuickCaptureDrawer({
                   </Field>
 
                   <Field>
-                    <FieldLabel htmlFor="qc-mins">Оценка (мин)</FieldLabel>
+                    <FieldLabel htmlFor="qc-mins">Длительность (мин)</FieldLabel>
                     <Input
                       id="qc-mins"
                       type="number"
@@ -179,33 +234,93 @@ export function QuickCaptureDrawer({
                   </Field>
                 </div>
 
-                {isToday === "today" ? (
-                  <Field>
-                    <FieldLabel>Слот дня</FieldLabel>
-                    <ToggleGroup
-                      type="single"
-                      value={slot}
-                      onValueChange={(v) => {
-                        if (v) setSlot(v as DaySlot);
-                      }}
-                      variant="outline"
-                      spacing={1}
-                      className="w-full"
-                    >
-                      <ToggleGroupItem value="morning" className="min-h-11 flex-1">
-                        Утро
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="afternoon" className="min-h-11 flex-1">
-                        День
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="evening" className="min-h-11 flex-1">
-                        Вечер
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="any" className="min-h-11 flex-1">
-                        Гибко
-                      </ToggleGroupItem>
-                    </ToggleGroup>
-                  </Field>
+                {isToday === "scheduled" ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field>
+                        <FieldLabel htmlFor="qc-date">Дата</FieldLabel>
+                        <Input
+                          id="qc-date"
+                          type="date"
+                          value={plannedDate}
+                          onChange={(e) => setPlannedDate(e.target.value)}
+                          className="min-h-11 num-tabular"
+                        />
+                      </Field>
+
+                      <Field>
+                        <FieldLabel htmlFor="qc-time" className="flex items-center gap-1">
+                          <ClockIcon className="size-3.5 text-muted-foreground" />
+                          Точное время (МСК)
+                        </FieldLabel>
+                        <Input
+                          id="qc-time"
+                          type="time"
+                          value={scheduledTime}
+                          onChange={(e) => setScheduledTime(e.target.value)}
+                          className="min-h-11 num-tabular"
+                        />
+                      </Field>
+                    </div>
+
+                    {scheduledTime ? (
+                      <Field
+                        orientation="horizontal"
+                        className="items-center justify-between rounded-xl border border-border/80 px-3.5 py-2.5"
+                      >
+                        <FieldLabel htmlFor="qc-meeting" className="font-normal text-sm">
+                          Встреча (напомнить за 15 мин в Telegram)
+                        </FieldLabel>
+                        <Switch
+                          id="qc-meeting"
+                          checked={isMeeting}
+                          onCheckedChange={(checked) => {
+                            setIsMeeting(checked);
+                            if (checked && minutes === "30") setMinutes("60");
+                          }}
+                        />
+                      </Field>
+                    ) : (
+                      <Field>
+                        <FieldLabel>Слот дня</FieldLabel>
+                        <ToggleGroup
+                          type="single"
+                          value={slot}
+                          onValueChange={(v) => {
+                            if (v) setSlot(v as DaySlot);
+                          }}
+                          variant="outline"
+                          spacing={1}
+                          className="w-full"
+                        >
+                          <ToggleGroupItem value="morning" className="min-h-11 flex-1">
+                            Утро
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value="afternoon" className="min-h-11 flex-1">
+                            День
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value="evening" className="min-h-11 flex-1">
+                            Вечер
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value="any" className="min-h-11 flex-1">
+                            Гибко
+                          </ToggleGroupItem>
+                        </ToggleGroup>
+                      </Field>
+                    )}
+
+                    {conflicts.length > 0 ? (
+                      <Alert variant="destructive">
+                        <AlertTriangleIcon className="size-4" />
+                        <AlertDescription>
+                          Пересекается с:{" "}
+                          {conflicts
+                            .map((c) => `«${c.title}» (${c.timeRangeLabel})`)
+                            .join(", ")}
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+                  </>
                 ) : null}
               </FieldGroup>
             ) : null}

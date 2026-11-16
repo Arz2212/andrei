@@ -1445,11 +1445,17 @@ export type Database = {
           follow_up_at: string | null
           goal_id: number | null
           id: number
+          is_meeting: boolean
           notes: string | null
           parent_task_id: number | null
           planned_date: string | null
           priority: number
           project_id: number | null
+          remind_before_minutes: number | null
+          reminder_sent_at: string | null
+          reminder_snoozed_until: string | null
+          scheduled_end_at: string | null
+          scheduled_start_at: string | null
           sort_order: number
           source: string
           status: string
@@ -1469,11 +1475,17 @@ export type Database = {
           follow_up_at?: string | null
           goal_id?: number | null
           id?: never
+          is_meeting?: boolean
           notes?: string | null
           parent_task_id?: number | null
           planned_date?: string | null
           priority?: number
           project_id?: number | null
+          remind_before_minutes?: number | null
+          reminder_sent_at?: string | null
+          reminder_snoozed_until?: string | null
+          scheduled_end_at?: string | null
+          scheduled_start_at?: string | null
           sort_order?: number
           source?: string
           status?: string
@@ -1493,11 +1505,17 @@ export type Database = {
           follow_up_at?: string | null
           goal_id?: number | null
           id?: never
+          is_meeting?: boolean
           notes?: string | null
           parent_task_id?: number | null
           planned_date?: string | null
           priority?: number
           project_id?: number | null
+          remind_before_minutes?: number | null
+          reminder_sent_at?: string | null
+          reminder_snoozed_until?: string | null
+          scheduled_end_at?: string | null
+          scheduled_start_at?: string | null
           sort_order?: number
           source?: string
           status?: string

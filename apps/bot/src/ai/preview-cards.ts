@@ -1,4 +1,9 @@
-import type { DaySlot, TaskStatus } from "@life-os/db";
+import {
+  extractLocalTimeParts,
+  formatTaskTimeRange,
+  type DaySlot,
+  type TaskStatus,
+} from "@life-os/db";
 
 const SLOT_LABELS: Record<DaySlot, string> = {
   morning: "🌅 Утро",
@@ -25,20 +30,71 @@ export interface StagedTaskItem {
   day_slot?: DaySlot;
   estimated_minutes?: number | null;
   due_date?: string | null;
+  scheduled_start_at?: string | null;
+  scheduled_end_at?: string | null;
+  scheduled_time?: string | null;
+  scheduled_end_time?: string | null;
+  is_meeting?: boolean;
+  remind_before_minutes?: number | null;
+  allow_duplicate?: boolean;
   waiting_on_person?: string | null;
   waiting_context?: string | null;
   follow_up_at?: string | null;
+  conflict_warnings?: string[];
 }
 
-export function formatCreateTasksPreview(tasks: StagedTaskItem[]): string {
+function formatReminderBadge(
+  scheduledStartAt: string | null | undefined,
+  remindBeforeMinutes: number | null | undefined,
+  timeZone: string
+): string {
+  if (!scheduledStartAt || remindBeforeMinutes === null) return "";
+  const lead = remindBeforeMinutes ?? 15;
+  if (lead === 0) {
+    const startClock = extractLocalTimeParts(scheduledStartAt, timeZone).timeStr;
+    return ` · 🔔 ровно в ${startClock}`;
+  }
+  return ` · 🔔 за ${lead} мин`;
+}
+
+export function formatCreateTasksPreview(
+  tasks: StagedTaskItem[],
+  timeZone = "Europe/Moscow"
+): string {
+  const hasAnyConflict = tasks.some(
+    (t) => t.conflict_warnings && t.conflict_warnings.length > 0
+  );
   const lines: string[] = ["📋 **Превью новых задач**", ""];
+
   tasks.forEach((t, idx) => {
     const slot = SLOT_LABELS[t.day_slot ?? "any"];
-    const datePart = t.planned_date ? ` · ${t.planned_date}` : " · Входящие";
-    const estPart = t.estimated_minutes ? ` · ~${t.estimated_minutes} мин` : "";
     const prioPart = t.priority === 1 ? " 🔥 Главный фокус" : "";
-    lines.push(`${idx + 1}. **${t.title}**${prioPart}`);
-    lines.push(`   ${slot}${datePart}${estPart}`);
+    const kindIcon = t.is_meeting ? "🗓 " : "";
+    lines.push(`${idx + 1}. ${kindIcon}**${t.title}**${prioPart}`);
+
+    if (t.scheduled_start_at) {
+      const range =
+        formatTaskTimeRange(
+          {
+            scheduled_start_at: t.scheduled_start_at,
+            scheduled_end_at: t.scheduled_end_at ?? null,
+          },
+          timeZone
+        ) ?? t.scheduled_time ?? "";
+      const dateStr =
+        t.planned_date ?? extractLocalTimeParts(t.scheduled_start_at, timeZone).dateStr;
+      const reminderStr = formatReminderBadge(
+        t.scheduled_start_at,
+        t.remind_before_minutes,
+        timeZone
+      );
+      lines.push(`   🕙 **${dateStr}, ${range}** (${slot})${reminderStr}`);
+    } else {
+      const datePart = t.planned_date ? ` · ${t.planned_date}` : " · Входящие";
+      const estPart = t.estimated_minutes ? ` · ~${t.estimated_minutes} мин` : "";
+      lines.push(`   ${slot}${datePart}${estPart}`);
+    }
+
     if (t.status === "waiting" || t.waiting_on_person) {
       const who = t.waiting_on_person || "контрагента";
       const remind = t.follow_up_at ? ` (напомнить: ${t.follow_up_at.slice(0, 10)})` : "";
@@ -50,8 +106,21 @@ export function formatCreateTasksPreview(tasks: StagedTaskItem[]): string {
     if (t.notes) {
       lines.push(`   💬 ${t.notes}`);
     }
+    if (t.conflict_warnings && t.conflict_warnings.length > 0) {
+      for (const cw of t.conflict_warnings) {
+        lines.push(`   ⚠️ **КОНФЛИКТ ВРЕМЕНИ:** ${cw}`);
+      }
+    }
   });
-  lines.push("", "Подтверждаем запись в план?");
+
+  lines.push("");
+  if (hasAnyConflict) {
+    lines.push(
+      "⚠️ **Внимание:** есть пересечение по времени! Нажми «✏️ Исправить», чтобы сдвинуть слот, или подтверди как есть."
+    );
+  } else {
+    lines.push("Подтверждаем запись в план?");
+  }
   return lines.join("\n");
 }
 
@@ -60,23 +129,58 @@ export interface StagedTaskRescheduleItem {
   task_title?: string;
   planned_date?: string | null;
   day_slot?: DaySlot;
+  estimated_minutes?: number | null;
+  scheduled_start_at?: string | null;
+  scheduled_end_at?: string | null;
+  scheduled_time?: string | null;
+  scheduled_end_time?: string | null;
+  is_meeting?: boolean;
+  remind_before_minutes?: number | null;
   status?: TaskStatus;
   priority?: number;
   waiting_on_person?: string | null;
   follow_up_at?: string | null;
+  conflict_warnings?: string[];
 }
 
-export function formatRescheduleTasksPreview(updates: StagedTaskRescheduleItem[]): string {
+export function formatRescheduleTasksPreview(
+  updates: StagedTaskRescheduleItem[],
+  timeZone = "Europe/Moscow"
+): string {
+  const hasAnyConflict = updates.some(
+    (u) => u.conflict_warnings && u.conflict_warnings.length > 0
+  );
   const lines: string[] = ["🔄 **Превью обновления плана задач**", ""];
+
   updates.forEach((u, idx) => {
     const label = u.task_title ? `**${u.task_title}** (#${u.task_id})` : `Задача #${u.task_id}`;
     const changes: string[] = [];
-    if (u.planned_date !== undefined) {
-      changes.push(u.planned_date ? `дата → ${u.planned_date}` : "убрать дату");
+
+    if (u.scheduled_start_at) {
+      const range =
+        formatTaskTimeRange(
+          {
+            scheduled_start_at: u.scheduled_start_at,
+            scheduled_end_at: u.scheduled_end_at ?? null,
+          },
+          timeZone
+        ) ?? "";
+      const dStr =
+        u.planned_date ?? extractLocalTimeParts(u.scheduled_start_at, timeZone).dateStr;
+      const rem = formatReminderBadge(u.scheduled_start_at, u.remind_before_minutes, timeZone);
+      changes.push(`🕙 ${dStr}, ${range}${rem}`);
+    } else {
+      if (u.planned_date !== undefined) {
+        changes.push(u.planned_date ? `дата → ${u.planned_date}` : "убрать дату");
+      }
+      if (u.scheduled_start_at === null) {
+        changes.push("убрать точное время");
+      }
+      if (u.day_slot !== undefined) {
+        changes.push(`слот → ${SLOT_LABELS[u.day_slot]}`);
+      }
     }
-    if (u.day_slot !== undefined) {
-      changes.push(`слот → ${SLOT_LABELS[u.day_slot]}`);
-    }
+
     if (u.status !== undefined) {
       changes.push(`статус → ${STATUS_LABELS[u.status]}`);
     }
@@ -89,10 +193,23 @@ export function formatRescheduleTasksPreview(updates: StagedTaskRescheduleItem[]
     if (u.follow_up_at) {
       changes.push(`напомнить: ${u.follow_up_at.slice(0, 10)}`);
     }
+
     lines.push(`${idx + 1}. ${label}`);
     lines.push(`   ${changes.join(" · ") || "без изменений"}`);
+
+    if (u.conflict_warnings && u.conflict_warnings.length > 0) {
+      for (const cw of u.conflict_warnings) {
+        lines.push(`   ⚠️ **КОНФЛИКТ ВРЕМЕНИ:** ${cw}`);
+      }
+    }
   });
-  lines.push("", "Применить эти изменения к плану?");
+
+  lines.push("");
+  if (hasAnyConflict) {
+    lines.push("⚠️ Обнаружено наложение по времени! Проверь или нажми «✏️ Исправить».");
+  } else {
+    lines.push("Применить эти изменения к плану?");
+  }
   return lines.join("\n");
 }
 

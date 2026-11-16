@@ -2,6 +2,7 @@ import { InlineKeyboard, type Bot, type Context } from "grammy";
 import {
   createStateCheckin,
   formatIsoDate,
+  formatTaskTimeRange,
   getOwnerBotDbClient,
   getOwnerProfile,
   getTodayOverview,
@@ -63,13 +64,17 @@ export function registerCommands(bot: Bot<Context>): void {
     const scheduledMins = activeTasks.reduce((s, t) => s + (t.estimated_minutes ?? 30), 0);
     const freeNet = Math.max(avail - buf - scheduledMins, 0);
 
+    const tz = overview.profile?.timezone || "Europe/Moscow";
     const bySlot = (slot: string) =>
       overview.todayTasks
         .filter((t) => t.day_slot === slot && t.status !== "cancelled")
-        .map(
-          (t) =>
-            `  ${t.status === "done" ? "☑️" : "⬜"} ${t.title}${t.estimated_minutes ? ` (${t.estimated_minutes}м)` : ""}`
-        );
+        .map((t) => {
+          const timeRange = formatTaskTimeRange(t, tz);
+          const timePrefix = timeRange ? `🕙 **${timeRange}** · ` : "";
+          const estSuffix =
+            !timeRange && t.estimated_minutes ? ` (${t.estimated_minutes}м)` : "";
+          return `  ${t.status === "done" ? "☑️" : "⬜"} ${timePrefix}${t.title}${estSuffix}`;
+        });
 
     const sections: string[] = [
       `🗓 **Сегодня · ${overview.todayDate}**`,

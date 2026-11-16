@@ -3,18 +3,34 @@
 import * as React from "react";
 import { toast } from "sonner";
 import {
-  PlusIcon,
-  FolderPlusIcon,
-  ClockIcon,
+  BellIcon,
   CalendarDaysIcon,
+  ClockIcon,
+  FolderPlusIcon,
   HourglassIcon,
+  LayersIcon,
+  MoonStarIcon,
+  PencilIcon,
+  PlusIcon,
   SunIcon,
   SunsetIcon,
-  MoonStarIcon,
-  LayersIcon,
+  Trash2Icon,
 } from "lucide-react";
-import type { DayPlan, DaySlot, LifeArea, Project, Task, TaskStatus } from "@life-os/db";
-import { saveProjectAction, toggleTaskAction } from "@/app/actions";
+import {
+  REMINDER_DISABLED_SENTINEL,
+  formatTaskTimeRange,
+  type DayPlan,
+  type DaySlot,
+  type LifeArea,
+  type Project,
+  type Task,
+  type TaskStatus,
+} from "@life-os/db";
+import {
+  deleteTaskAction,
+  saveProjectAction,
+  toggleTaskAction,
+} from "@/app/actions";
 import {
   cn,
   formatDateLongRu,
@@ -67,6 +83,27 @@ function addDaysIso(baseIso: string, offset: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function sortTasksChronologically(items: Task[]): Task[] {
+  return [...items].sort((a, b) => {
+    const aDone = a.status === "done" ? 1 : 0;
+    const bDone = b.status === "done" ? 1 : 0;
+    if (aDone !== bDone) return aDone - bDone;
+
+    if (a.scheduled_start_at && b.scheduled_start_at) {
+      const diff =
+        Date.parse(a.scheduled_start_at) - Date.parse(b.scheduled_start_at);
+      if (diff !== 0) return diff;
+    } else if (a.scheduled_start_at && !b.scheduled_start_at) {
+      return -1;
+    } else if (!a.scheduled_start_at && b.scheduled_start_at) {
+      return 1;
+    }
+
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.sort_order - b.sort_order;
+  });
+}
+
 interface TasksViewProps {
   todayDate: string;
   initialTab?: string;
@@ -88,19 +125,30 @@ export function TasksView({
 }: TasksViewProps) {
   const [, startTransition] = React.useTransition();
 
-  const [optimisticTasks, applyOptimisticToggle] = React.useOptimistic(
+  const [optimisticTasks, applyOptimisticMutation] = React.useOptimistic(
     tasks,
-    (current: Task[], update: { id: number; done: boolean }) =>
-      current.map((t) =>
-        t.id === update.id ? { ...t, status: update.done ? "done" : "todo" } : t
-      )
+    (
+      current: Task[],
+      action:
+        | { kind: "toggle"; id: number; done: boolean }
+        | { kind: "delete"; id: number }
+    ) => {
+      if (action.kind === "delete") {
+        return current.filter((t) => t.id !== action.id);
+      }
+      return current.map((t) =>
+        t.id === action.id ? { ...t, status: action.done ? "done" : "todo" } : t
+      );
+    }
   );
 
   // Task modal
   const [taskModalOpen, setTaskModalOpen] = React.useState(false);
   const [editingTask, setEditingTask] = React.useState<Task | null>(null);
-  const [modalDefaultDate, setModalDefaultDate] = React.useState<string | null>(todayDate);
-  const [modalDefaultStatus, setModalDefaultStatus] = React.useState<TaskStatus>("todo");
+  const [modalDefaultDate, setModalDefaultDate] =
+    React.useState<string | null>(todayDate);
+  const [modalDefaultStatus, setModalDefaultStatus] =
+    React.useState<TaskStatus>("todo");
 
   // Project modal
   const [projectModalOpen, setProjectModalOpen] = React.useState(false);
@@ -119,26 +167,52 @@ export function TasksView({
     [todayDate]
   );
 
-  const todayTasks = optimisticTasks.filter(
-    (t) => t.planned_date === todayDate && t.status !== "waiting"
+  const todayTasks = React.useMemo(
+    () =>
+      sortTasksChronologically(
+        optimisticTasks.filter(
+          (t) => t.planned_date === todayDate && t.status !== "waiting"
+        )
+      ),
+    [optimisticTasks, todayDate]
   );
+
   const waitingTasks = optimisticTasks.filter((t) => t.status === "waiting");
-  const inboxAndActiveTasks = optimisticTasks.filter((t) => t.status !== "cancelled");
+  const inboxAndActiveTasks = React.useMemo(
+    () =>
+      sortTasksChronologically(
+        optimisticTasks.filter((t) => t.status !== "cancelled")
+      ),
+    [optimisticTasks]
+  );
 
   const availableMins = dayPlan?.available_minutes ?? defaultAvailableMinutes;
   const bufferMins = dayPlan?.buffer_minutes ?? defaultBufferMinutes;
   const scheduledTodayMins = todayTasks
     .filter((t) => t.status !== "done")
     .reduce((acc, t) => acc + (t.estimated_minutes ?? 30), 0);
-  const freeBeforeBuffer = Math.max(availableMins - bufferMins, 0) - scheduledTodayMins;
+  const freeBeforeBuffer =
+    Math.max(availableMins - bufferMins, 0) - scheduledTodayMins;
 
   function handleToggle(task: Task, checked: boolean) {
     startTransition(async () => {
-      applyOptimisticToggle({ id: task.id, done: checked });
+      applyOptimisticMutation({ kind: "toggle", id: task.id, done: checked });
       try {
         await toggleTaskAction(task.id, checked);
       } catch {
         toast.error("Не удалось обновить задачу");
+      }
+    });
+  }
+
+  function handleQuickDelete(task: Task) {
+    startTransition(async () => {
+      applyOptimisticMutation({ kind: "delete", id: task.id });
+      try {
+        await deleteTaskAction(task.id);
+        toast.success("Задача удалена");
+      } catch {
+        toast.error("Не удалось удалить задачу");
       }
     });
   }
@@ -166,7 +240,9 @@ export function TasksView({
         setProjectModalOpen(false);
         toast.success("Проект создан");
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Ошибка сохранения проекта");
+        toast.error(
+          err instanceof Error ? err.message : "Ошибка сохранения проекта"
+        );
       }
     });
   }
@@ -174,12 +250,24 @@ export function TasksView({
   function renderTaskRow(task: Task, showDateBadge = false) {
     const isDone = task.status === "done";
     const project = task.project_id ? projectMap.get(task.project_id) : null;
-    const slotInfo = SLOT_META[(task.day_slot as DaySlot) ?? "any"] ?? SLOT_META.any;
+    const slotInfo =
+      SLOT_META[(task.day_slot as DaySlot) ?? "any"] ?? SLOT_META.any;
+    const timeRange = formatTaskTimeRange(task, "Europe/Moscow");
+    const hasReminder =
+      Boolean(task.scheduled_start_at) &&
+      task.remind_before_minutes !== null &&
+      task.reminder_sent_at !== REMINDER_DISABLED_SENTINEL;
+
+    const metaParts = [
+      project?.title ?? null,
+      slotInfo.label,
+      task.due_date ? `срок ${formatDateShortRu(task.due_date)}` : null,
+    ].filter(Boolean);
 
     return (
       <div
         key={task.id}
-        className="flex min-h-12 items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-muted/40"
+        className="flex min-h-13 items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:bg-muted/40"
       >
         <div className="flex size-11 -m-2 shrink-0 items-center justify-center">
           <Checkbox
@@ -195,12 +283,32 @@ export function TasksView({
             setEditingTask(task);
             setTaskModalOpen(true);
           }}
-          className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
+          className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
         >
-          <div className="flex w-full items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-1.5">
             {task.priority === 1 && !isDone ? (
-              <span className="size-2 shrink-0 rounded-full bg-primary" title="Главный приоритет" />
+              <span
+                className="size-2 shrink-0 rounded-full bg-primary"
+                title="Главный приоритет"
+              />
             ) : null}
+
+            {timeRange ? (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "shrink-0 gap-1 border-primary/35 bg-accent/55 text-foreground num-tabular",
+                  isDone && "opacity-60"
+                )}
+              >
+                <ClockIcon className="size-3 text-primary" />
+                {timeRange}
+                {hasReminder && !isDone ? (
+                  <BellIcon className="size-2.5 text-primary" />
+                ) : null}
+              </Badge>
+            ) : null}
+
             <span
               className={cn(
                 "truncate text-sm font-medium",
@@ -211,18 +319,14 @@ export function TasksView({
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {project ? <span>{project.title}</span> : null}
-            <span>· {slotInfo.label}</span>
-            {task.due_date ? (
-              <span className="num-tabular">· срок {formatDateShortRu(task.due_date)}</span>
-            ) : null}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <span>{metaParts.join(" · ")}</span>
           </div>
         </button>
 
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           {showDateBadge && task.planned_date ? (
-            <Badge variant="outline" className="num-tabular">
+            <Badge variant="outline" className="hidden sm:inline-flex num-tabular">
               {formatDateShortRu(task.planned_date)}
             </Badge>
           ) : null}
@@ -231,6 +335,33 @@ export function TasksView({
               {task.estimated_minutes} м
             </Badge>
           ) : null}
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              setEditingTask(task);
+              setTaskModalOpen(true);
+            }}
+            aria-label={`Редактировать «${task.title}»`}
+            title="Редактировать"
+            className="size-9 rounded-lg text-muted-foreground hover:text-foreground"
+          >
+            <PencilIcon className="size-3.5" />
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => handleQuickDelete(task)}
+            aria-label={`Удалить «${task.title}»`}
+            title="Удалить"
+            className="size-9 rounded-lg text-muted-foreground hover:text-destructive"
+          >
+            <Trash2Icon className="size-3.5" />
+          </Button>
         </div>
       </div>
     );
@@ -241,13 +372,15 @@ export function TasksView({
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-0.5">
-          <h1 className="text-2xl font-semibold tracking-tight">Задачи и календарь</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Задачи и календарь
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Слоты Утро / День / Вечер, защитный буфер времени и отдельный контур ожиданий
+            Гибкие слоты с буфером дня, точное время встреч и контроль пересечений
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -302,7 +435,8 @@ export function TasksView({
                     Баланс нагрузки на сегодня
                   </CardTitle>
                   <CardDescription>
-                    {dayPlan?.main_focus || "План строится с запасом на непредвиденные дела"}
+                    {dayPlan?.main_focus ||
+                      "План строится с запасом на непредвиденные дела"}
                   </CardDescription>
                 </div>
                 <Badge
@@ -377,20 +511,27 @@ export function TasksView({
         {/* WEEK TAB */}
         <TabsContent value="week" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {weekDates.map((isoDate, idx) => {
-            const dayItems = optimisticTasks.filter(
-              (t) => t.planned_date === isoDate && t.status !== "waiting"
+            const dayItems = sortTasksChronologically(
+              optimisticTasks.filter(
+                (t) => t.planned_date === isoDate && t.status !== "waiting"
+              )
             );
             const dayLoad = dayItems
               .filter((t) => t.status !== "done")
               .reduce((s, t) => s + (t.estimated_minutes ?? 30), 0);
-            const maxSafe = Math.max(defaultAvailableMinutes - defaultBufferMinutes, 60);
+            const maxSafe = Math.max(
+              defaultAvailableMinutes - defaultBufferMinutes,
+              60
+            );
 
             return (
               <Card key={isoDate} className="rounded-2xl shadow-none">
                 <CardHeader className="flex flex-row items-center justify-between pb-3">
                   <div className="flex flex-col gap-0.5">
                     <CardTitle className="text-base font-semibold">
-                      {idx === 0 ? `Сегодня · ${formatDateShortRu(isoDate)}` : formatDateLongRu(isoDate)}
+                      {idx === 0
+                        ? `Сегодня · ${formatDateShortRu(isoDate)}`
+                        : formatDateLongRu(isoDate)}
                     </CardTitle>
                     <CardDescription className="num-tabular">
                       Запланировано {formatMinutesRu(dayLoad)} (безопасный лимит{" "}
@@ -457,7 +598,7 @@ export function TasksView({
                     key={wt.id}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/80 p-3.5"
                   >
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
                       <div className="flex size-11 -m-2 shrink-0 items-center justify-center">
                         <Checkbox
                           checked={false}
@@ -473,7 +614,9 @@ export function TasksView({
                         }}
                         className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
                       >
-                        <span className="truncate text-sm font-medium">{wt.title}</span>
+                        <span className="truncate text-sm font-medium">
+                          {wt.title}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           От кого:{" "}
                           <strong className="font-medium text-foreground">
@@ -484,7 +627,7 @@ export function TasksView({
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {wt.follow_up_at ? (
                         <Badge variant="outline" className="num-tabular">
                           <ClockIcon className="mr-1 size-3" />
@@ -493,6 +636,29 @@ export function TasksView({
                       ) : (
                         <Badge variant="secondary">Без даты</Badge>
                       )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => {
+                          setEditingTask(wt);
+                          setTaskModalOpen(true);
+                        }}
+                        aria-label="Редактировать"
+                        className="size-9 rounded-lg text-muted-foreground hover:text-foreground"
+                      >
+                        <PencilIcon className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => handleQuickDelete(wt)}
+                        aria-label="Удалить"
+                        className="size-9 rounded-lg text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2Icon className="size-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ))
@@ -532,18 +698,25 @@ export function TasksView({
         </TabsContent>
 
         {/* PROJECTS TAB */}
-        <TabsContent value="projects" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <TabsContent
+          value="projects"
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+        >
           {projects.map((proj) => {
             const pTasks = optimisticTasks.filter((t) => t.project_id === proj.id);
             const openCount = pTasks.filter((t) => t.status !== "done").length;
             const doneCount = pTasks.filter((t) => t.status === "done").length;
 
             return (
-              <Card key={proj.id} className="flex flex-col justify-between rounded-2xl shadow-none">
+              <Card
+                key={proj.id}
+                className="flex flex-col justify-between rounded-2xl shadow-none"
+              >
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-2">
                     <Badge variant="secondary">
-                      {LIFE_AREA_LABELS[proj.life_area as LifeArea] ?? proj.life_area}
+                      {LIFE_AREA_LABELS[proj.life_area as LifeArea] ??
+                        proj.life_area}
                     </Badge>
                     {proj.due_date ? (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground num-tabular">

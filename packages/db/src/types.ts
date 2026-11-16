@@ -34,6 +34,14 @@ export type TaskStatus = "inbox" | "todo" | "in_progress" | "waiting" | "done" |
 export type DaySlot = "morning" | "afternoon" | "evening" | "any";
 export type LifeArea = "work" | "study" | "launch" | "personal" | "health";
 
+export interface TimeConflict {
+  task: Task;
+  startIso: string;
+  endIso: string;
+  timeRangeLabel: string;
+  plannedDate: string | null;
+}
+
 export type DayPlan = Tables<"day_plans">;
 export type DayPlanInsert = TablesInsert<"day_plans">;
 export type DayPlanUpdate = TablesUpdate<"day_plans">;

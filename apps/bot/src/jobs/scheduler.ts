@@ -1,20 +1,86 @@
 import cron from "node-cron";
-import type { Bot, Context } from "grammy";
+import { InlineKeyboard, type Bot, type Context } from "grammy";
 import {
+  extractLocalTimeParts,
   formatIsoDate,
+  formatTaskTimeRange,
   getAssistantSettings,
+  getDueTaskReminders,
   getOwnerBotDbClient,
   getOwnerProfile,
   getTodayOverview,
   getWaitingTasks,
+  markTaskReminderSent,
 } from "@life-os/db";
 import { botConfig } from "../config";
 import { markdownToTelegramHtml } from "../telegram-helpers";
 
 const sentReminderKeys = new Set<string>();
+let reminderTickRunning = false;
 
 export function startProactiveScheduler(bot: Bot<Context>): void {
-  // Check every 15 minutes for due 'waiting' follow-ups & morning/evening digest windows
+  // 1. Every 1 minute: fire exact-time meeting & task reminders
+  cron.schedule("* * * * *", async () => {
+    if (reminderTickRunning) return;
+    reminderTickRunning = true;
+    try {
+      const { db } = await getOwnerBotDbClient();
+      const [profile, settings] = await Promise.all([
+        getOwnerProfile(db),
+        getAssistantSettings(db),
+      ]);
+
+      if (settings && !settings.proactive_reminders_enabled) return;
+
+      const targetChatId = profile?.telegram_user_id || botConfig.allowedTelegramUserId;
+      if (!targetChatId) return;
+
+      const tz = profile?.timezone || "Europe/Moscow";
+      const now = new Date();
+      const dueReminders = await getDueTaskReminders(db, now);
+
+      for (const task of dueReminders) {
+        if (!task.scheduled_start_at) continue;
+
+        // Mark sent immediately before/on send so concurrent/next ticks never duplicate
+        await markTaskReminderSent(db, task.id);
+
+        const startParts = extractLocalTimeParts(task.scheduled_start_at, tz);
+        const rangeLabel = formatTaskTimeRange(task, tz) || startParts.timeStr;
+        const minsUntilStart = Math.round(
+          (Date.parse(task.scheduled_start_at) - now.getTime()) / 60_000
+        );
+        const leadMins = task.remind_before_minutes ?? 15;
+
+        const header =
+          leadMins > 0 && minsUntilStart > 1
+            ? `⏰ **Скоро ${task.is_meeting ? "встреча" : "задача"} (через ${minsUntilStart} мин, в ${startParts.timeStr}):**`
+            : `🔔 **Время ${task.is_meeting ? "встречи" : "задачи"} (${rangeLabel}):**`;
+
+        const lines = [header, `📌 **${task.title}**`];
+        if (task.notes) {
+          lines.push(`💬 ${task.notes}`);
+        }
+
+        const kb = new InlineKeyboard()
+          .text("✅ Выполнено", `rem:done:${task.id}`)
+          .text("💤 Напомнить через 10 мин", `rem:snooze:${task.id}:10`);
+
+        await bot.api
+          .sendMessage(targetChatId, markdownToTelegramHtml(lines.join("\n")), {
+            parse_mode: "HTML",
+            reply_markup: kb,
+          })
+          .catch((e) => console.warn("[scheduler] Failed to send meeting reminder:", e));
+      }
+    } catch (err) {
+      console.error("[scheduler:1m] Tick error:", err);
+    } finally {
+      reminderTickRunning = false;
+    }
+  });
+
+  // 2. Every 15 minutes: due 'waiting' follow-ups & evening review digest
   cron.schedule("*/15 * * * *", async () => {
     try {
       const { db } = await getOwnerBotDbClient();
@@ -32,7 +98,6 @@ export function startProactiveScheduler(bot: Bot<Context>): void {
       const today = formatIsoDate(new Date(), tz);
       const now = new Date();
 
-      // 1. Due waiting-for reminders
       const waitingTasks = await getWaitingTasks(db);
       for (const task of waitingTasks) {
         if (!task.follow_up_at) continue;
@@ -50,7 +115,6 @@ export function startProactiveScheduler(bot: Bot<Context>): void {
         }
       }
 
-      // 2. Check local HH:MM for Evening Review gentle prompt
       const hhmm = new Intl.DateTimeFormat("en-GB", {
         timeZone: tz,
         hour: "2-digit",
@@ -77,7 +141,7 @@ export function startProactiveScheduler(bot: Bot<Context>): void {
           .catch(() => {});
       }
     } catch (err) {
-      console.error("[scheduler] Tick error:", err);
+      console.error("[scheduler:15m] Tick error:", err);
     }
   });
 }
