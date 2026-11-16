@@ -1,0 +1,29 @@
+{
+  "name": "@life-os/bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm --clean",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.118",
+    "@life-os/db": "workspace:*",
+    "@supabase/supabase-js": "^2.119.0",
+    "ai": "^7.0.173",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.46.0",
+    "node-cron": "^3.0.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/node-cron": "^3.0.11",
+    "tsup": "^9.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
