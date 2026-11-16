@@ -1354,6 +1354,54 @@ export type Database = {
         }
         Relationships: []
       }
+      reminders_queue: {
+        Row: {
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          error_text: string | null
+          id: number
+          message_text: string
+          metadata: Json
+          sent_at: string | null
+          status: string
+          telegram_chat_id: number
+          trigger_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          error_text?: string | null
+          id?: never
+          message_text: string
+          metadata?: Json
+          sent_at?: string | null
+          status?: string
+          telegram_chat_id?: number
+          trigger_at: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          error_text?: string | null
+          id?: never
+          message_text?: string
+          metadata?: Json
+          sent_at?: string | null
+          status?: string
+          telegram_chat_id?: number
+          trigger_at?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       shopping_list_items: {
         Row: {
           added_from: string
@@ -1451,7 +1499,9 @@ export type Database = {
           planned_date: string | null
           priority: number
           project_id: number | null
+          recurrence_rule: string | null
           remind_before_minutes: number | null
+          remind_offsets_minutes: number[]
           reminder_sent_at: string | null
           reminder_snoozed_until: string | null
           scheduled_end_at: string | null
@@ -1459,6 +1509,8 @@ export type Database = {
           sort_order: number
           source: string
           status: string
+          subtasks: Json
+          tags: string[]
           title: string
           updated_at: string
           user_id: string
@@ -1481,7 +1533,9 @@ export type Database = {
           planned_date?: string | null
           priority?: number
           project_id?: number | null
+          recurrence_rule?: string | null
           remind_before_minutes?: number | null
+          remind_offsets_minutes?: number[]
           reminder_sent_at?: string | null
           reminder_snoozed_until?: string | null
           scheduled_end_at?: string | null
@@ -1489,6 +1543,8 @@ export type Database = {
           sort_order?: number
           source?: string
           status?: string
+          subtasks?: Json
+          tags?: string[]
           title: string
           updated_at?: string
           user_id: string
@@ -1511,7 +1567,9 @@ export type Database = {
           planned_date?: string | null
           priority?: number
           project_id?: number | null
+          recurrence_rule?: string | null
           remind_before_minutes?: number | null
+          remind_offsets_minutes?: number[]
           reminder_sent_at?: string | null
           reminder_snoozed_until?: string | null
           scheduled_end_at?: string | null
@@ -1519,6 +1577,8 @@ export type Database = {
           sort_order?: number
           source?: string
           status?: string
+          subtasks?: Json
+          tags?: string[]
           title?: string
           updated_at?: string
           user_id?: string

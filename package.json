@@ -1,13 +1,13 @@
 {
   "name": "life-os",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@12.21.0",
   "scripts": {
-    "build": "pnpm --filter @life-os/db build && pnpm --filter @life-os/web build && pnpm --filter @life-os/bot build",
-    "typecheck": "pnpm --filter @life-os/db typecheck && pnpm --filter @life-os/web typecheck && pnpm --filter @life-os/bot typecheck",
+    "build": "pnpm --filter @life-os/db build && pnpm --filter @life-os/mcp build && pnpm --filter @life-os/notifier build && pnpm --filter @life-os/web build",
+    "typecheck": "pnpm --filter @life-os/db typecheck && pnpm --filter @life-os/mcp typecheck && pnpm --filter @life-os/notifier typecheck && pnpm --filter @life-os/web typecheck",
     "dev:web": "pnpm --filter @life-os/web dev",
-    "dev:bot": "pnpm --filter @life-os/bot dev"
+    "dev:notifier": "pnpm --filter @life-os/notifier dev"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

@@ -10,8 +10,15 @@ export const TaskStatusSchema = z.enum([
   "cancelled",
 ]);
 export const LifeAreaSchema = z.enum(["work", "study", "launch", "personal", "health"]);
+export const RecordSourceSchema = z.enum(["web", "telegram", "mcp", "openclaw"]);
 
 export const ClockTimeSchema = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/);
+
+export const SubtaskItemSchema = z.object({
+  id: z.string().min(1).max(64),
+  title: z.string().min(1).max(400),
+  done: z.boolean().default(false),
+});
 
 export const CreateTaskInputSchema = z.object({
   title: z.string().min(1).max(400),
@@ -20,6 +27,8 @@ export const CreateTaskInputSchema = z.object({
   goal_id: z.number().int().positive().nullable().optional(),
   status: TaskStatusSchema.default("todo"),
   priority: z.number().int().min(1).max(4).default(2),
+  tags: z.array(z.string().min(1).max(60)).default([]),
+  subtasks: z.array(SubtaskItemSchema).default([]),
   planned_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   day_slot: DaySlotSchema.default("any"),
   estimated_minutes: z.number().int().min(5).max(720).nullable().optional(),
@@ -30,11 +39,13 @@ export const CreateTaskInputSchema = z.object({
   scheduled_end_time: ClockTimeSchema.nullable().optional(),
   is_meeting: z.boolean().default(false),
   remind_before_minutes: z.number().int().min(0).max(1440).nullable().optional(),
+  remind_offsets_minutes: z.array(z.number().int().min(0).max(1440)).optional(),
+  recurrence_rule: z.string().max(200).nullable().optional(),
   waiting_on_person: z.string().max(200).nullable().optional(),
   waiting_context: z.string().max(1000).nullable().optional(),
   waiting_since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   follow_up_at: z.string().nullable().optional(),
-  source: z.enum(["web", "telegram"]).default("web"),
+  source: RecordSourceSchema.default("web"),
 });
 
 export const UpdateDayPlanInputSchema = z.object({
@@ -46,12 +57,12 @@ export const UpdateDayPlanInputSchema = z.object({
 });
 
 export const StateCheckinInputSchema = z.object({
-  mood_score: z.number().int().min(1).max(5),
-  energy_score: z.number().int().min(1).max(5),
-  tension_score: z.number().int().min(1).max(5).nullable().optional(),
+  mood_score: z.number().int().min(1).max(10),
+  energy_score: z.number().int().min(1).max(10),
+  tension_score: z.number().int().min(1).max(10).nullable().optional(),
   context_tags: z.array(z.string().max(50)).default([]),
   note: z.string().max(2000).nullable().optional(),
-  source: z.enum(["web", "telegram"]).default("web"),
+  source: RecordSourceSchema.default("web"),
 });
 
 export const DailyReviewInputSchema = z.object({

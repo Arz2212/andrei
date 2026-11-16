@@ -8,6 +8,7 @@ const WATCHED_TABLES = [
   "tasks",
   "projects",
   "day_plans",
+  "reminders_queue",
   "pending_actions",
   "state_checkins",
   "daily_reviews",

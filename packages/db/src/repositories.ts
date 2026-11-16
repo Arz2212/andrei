@@ -1,4 +1,10 @@
 import type { Json } from "./database.types";
+import {
+  cancelEntityRemindersInQueue,
+  DEFAULT_REMINDER_LEAD_MINUTES,
+  REMINDER_DISABLED_SENTINEL,
+  syncTaskRemindersToQueue,
+} from "./reminders";
 import type {
   AssistantAgreement,
   AssistantAgreementInsert,
@@ -19,6 +25,7 @@ import type {
   EveningReviewCriterionInsert,
   EveningReviewCriterionUpdate,
   FinanceBalanceSummary,
+  FuzzyProjectMatch,
   FuzzyTaskMatch,
   PendingAction,
   PendingActionInsert,
@@ -40,7 +47,7 @@ import type {
   WidgetKey,
 } from "./types";
 
-export const REMINDER_DISABLED_SENTINEL = "2099-12-31T23:59:59.000Z";
+export { DEFAULT_REMINDER_LEAD_MINUTES, REMINDER_DISABLED_SENTINEL };
 
 export function formatIsoDate(date: Date = new Date(), timeZone = "Europe/Moscow"): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -57,9 +64,6 @@ export function addDaysToIsoDate(isoDate: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-/**
- * Returns Monday..Sunday (`Пн..Вс`) ISO dates (`YYYY-MM-DD`) for the week containing `anchorDateStr`.
- */
 export function getWeekBoundsIso(anchorDateStr: string): {
   weekStart: string;
   weekEnd: string;
@@ -67,7 +71,7 @@ export function getWeekBoundsIso(anchorDateStr: string): {
 } {
   const [y, m, d] = anchorDateStr.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-  const jsDay = dt.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
+  const jsDay = dt.getUTCDay();
   const diffToMonday = jsDay === 0 ? -6 : 1 - jsDay;
   const weekStart = addDaysToIsoDate(anchorDateStr, diffToMonday);
   const dates = Array.from({ length: 7 }, (_, i) => addDaysToIsoDate(weekStart, i));
@@ -198,7 +202,7 @@ export function formatTaskTimeRange(
 }
 
 // ============================================================================
-// Title Similarity, Deduplication & Fuzzy Task Search
+// Title Similarity, Deduplication & Fuzzy Search (Tasks & Projects)
 // ============================================================================
 
 const RU_EN_STOPWORDS = new Set([
@@ -307,10 +311,6 @@ export async function findSimilarActiveTasks(
   return (data ?? []).filter((t) => areTaskTitlesSimilar(t.title, params.title));
 }
 
-/**
- * Resolves existing tasks from a natural-language Russian/English query
- * (e.g. "позвонить Даше" / "звонок Даше", "встречу с сестрой", "научруку").
- */
 export async function findTasksByFuzzyQuery(
   db: TypedSupabaseClient,
   queryText: string,
@@ -363,6 +363,9 @@ export async function findTasksByFuzzyQuery(
       const waitingTokens = task.waiting_on_person
         ? new Set(tokenizeTaskTitle(task.waiting_on_person, false))
         : new Set<string>();
+      const tagTokens = Array.isArray(task.tags)
+        ? new Set(task.tags.flatMap((tg) => tokenizeTaskTitle(tg, false)))
+        : new Set<string>();
 
       let titleHits = 0;
       let auxHits = 0;
@@ -373,7 +376,7 @@ export async function findTasksByFuzzyQuery(
           Array.from(titleTokens).some((tt) => tt.startsWith(qt) || qt.startsWith(tt))
         ) {
           titleHits += 0.85;
-        } else if (notesTokens.has(qt) || waitingTokens.has(qt)) {
+        } else if (notesTokens.has(qt) || waitingTokens.has(qt) || tagTokens.has(qt)) {
           auxHits += 0.5;
         }
       }
@@ -385,7 +388,6 @@ export async function findTasksByFuzzyQuery(
     }
 
     if (score >= 0.35) {
-      // Slight preference for active tasks over already-done tasks when scores tie
       const activeBoost = task.status !== "done" ? 0.02 : 0;
       scored.push({ task, score: Math.min(1, Number((score + activeBoost).toFixed(3))) });
     }
@@ -393,6 +395,44 @@ export async function findTasksByFuzzyQuery(
 
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, options.limit ?? 8);
+}
+
+export async function findProjectsByFuzzyQuery(
+  db: TypedSupabaseClient,
+  queryText: string,
+  includeArchived = false
+): Promise<FuzzyProjectMatch[]> {
+  const normQuery = normalizeTaskTitleForDedup(queryText);
+  if (!normQuery) return [];
+
+  const projects = await listProjects(db, includeArchived);
+  const qTokens = Array.from(new Set(tokenizeTaskTitle(queryText, false)));
+  const results: FuzzyProjectMatch[] = [];
+
+  for (const project of projects) {
+    const normTitle = normalizeTaskTitleForDedup(project.title);
+    let score = 0;
+    if (normTitle === normQuery) {
+      score = 1.0;
+    } else if (normTitle.includes(normQuery) || (normQuery.length >= 4 && normQuery.includes(normTitle))) {
+      score = 0.9;
+    } else if (qTokens.length > 0) {
+      const pTokens = new Set(tokenizeTaskTitle(project.title, false));
+      let hits = 0;
+      for (const qt of qTokens) {
+        if (pTokens.has(qt) || Array.from(pTokens).some((pt) => pt.startsWith(qt) || qt.startsWith(pt))) {
+          hits += 1;
+        }
+      }
+      score = hits / qTokens.length;
+    }
+    if (score >= 0.4) {
+      results.push({ project, score: Number(score.toFixed(3)) });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
 }
 
 // ============================================================================
@@ -551,7 +591,7 @@ export async function deleteProject(
 }
 
 // ============================================================================
-// Tasks, Range Queries, Exact Schedule, Time Conflicts & Reminders
+// Tasks, Range Queries, Exact Schedule, Time Conflicts & Automatic Queue Sync
 // ============================================================================
 
 export interface ListTasksFilter {
@@ -603,11 +643,6 @@ export async function listTasks(
   return data ?? [];
 }
 
-/**
- * Fetches all tasks (including `done` tasks by default for past/future calendar browsing)
- * whose `planned_date` is within `[startDate, endDate]` OR whose `scheduled_start_at`
- * falls within `[startDate 00:00, endDate 23:59:59]` in `timeZone`.
- */
 export async function listTasksInDateRange(
   db: TypedSupabaseClient,
   params: {
@@ -649,12 +684,9 @@ export async function listTasksInDateRange(
   ];
 
   if (params.includeInbox) {
-    let inboxQ = db
-      .from("tasks")
-      .select("*")
-      .eq("status", "inbox")
-      .is("planned_date", null);
-    promises.push(inboxQ);
+    promises.push(
+      db.from("tasks").select("*").eq("status", "inbox").is("planned_date", null)
+    );
   }
 
   const results = await Promise.all(promises);
@@ -667,8 +699,12 @@ export async function listTasksInDateRange(
   }
 
   return Array.from(byId.values()).sort((a, b) => {
-    const dateA = a.planned_date ?? (a.scheduled_start_at ? extractLocalTimeParts(a.scheduled_start_at, tz).dateStr : "9999-99-99");
-    const dateB = b.planned_date ?? (b.scheduled_start_at ? extractLocalTimeParts(b.scheduled_start_at, tz).dateStr : "9999-99-99");
+    const dateA =
+      a.planned_date ??
+      (a.scheduled_start_at ? extractLocalTimeParts(a.scheduled_start_at, tz).dateStr : "9999-99-99");
+    const dateB =
+      b.planned_date ??
+      (b.scheduled_start_at ? extractLocalTimeParts(b.scheduled_start_at, tz).dateStr : "9999-99-99");
     if (dateA !== dateB) return dateA.localeCompare(dateB);
     if (a.scheduled_start_at && b.scheduled_start_at) {
       return Date.parse(a.scheduled_start_at) - Date.parse(b.scheduled_start_at);
@@ -708,10 +744,28 @@ function enrichScheduleFieldsOnInsert(
         Date.parse(next.scheduled_start_at) + mins * 60_000
       ).toISOString();
     }
-    if (next.remind_before_minutes === undefined) {
-      next.remind_before_minutes = 15;
-    } else if (next.remind_before_minutes === null && next.reminder_sent_at === undefined) {
-      next.reminder_sent_at = REMINDER_DISABLED_SENTINEL;
+
+    const hasExplicitOffsets =
+      Array.isArray(next.remind_offsets_minutes) && next.remind_offsets_minutes.length > 0;
+
+    if (next.remind_before_minutes === null && !hasExplicitOffsets) {
+      // Explicit null from UI/MCP = disable reminder
+      next.remind_offsets_minutes = [];
+      if (next.reminder_sent_at === undefined) {
+        next.reminder_sent_at = REMINDER_DISABLED_SENTINEL;
+      }
+    } else if (hasExplicitOffsets) {
+      const cleanOffsets = Array.from(new Set(next.remind_offsets_minutes!)).sort((a, b) => b - a);
+      next.remind_offsets_minutes = cleanOffsets;
+      if (next.remind_before_minutes === undefined) {
+        next.remind_before_minutes = cleanOffsets[0] ?? DEFAULT_REMINDER_LEAD_MINUTES;
+      }
+    } else if (typeof next.remind_before_minutes === "number") {
+      next.remind_offsets_minutes = [next.remind_before_minutes];
+    } else {
+      // Smart default: 30 minutes before timed task/meeting!
+      next.remind_before_minutes = DEFAULT_REMINDER_LEAD_MINUTES;
+      next.remind_offsets_minutes = [DEFAULT_REMINDER_LEAD_MINUTES];
     }
   }
   return next;
@@ -724,6 +778,7 @@ function enrichScheduleFieldsOnUpdate(
   const next: TaskUpdate = { ...patch };
   if (next.scheduled_start_at === null) {
     next.scheduled_end_at = null;
+    next.remind_offsets_minutes = [];
     next.reminder_sent_at = null;
     next.reminder_snoozed_until = null;
   } else if (typeof next.scheduled_start_at === "string") {
@@ -740,20 +795,56 @@ function enrichScheduleFieldsOnUpdate(
         Date.parse(next.scheduled_start_at) + mins * 60_000
       ).toISOString();
     }
-    if (next.remind_before_minutes === null) {
+
+    if (Array.isArray(next.remind_offsets_minutes)) {
+      if (next.remind_offsets_minutes.length === 0 && next.remind_before_minutes === null) {
+        next.reminder_sent_at = REMINDER_DISABLED_SENTINEL;
+        next.reminder_snoozed_until = null;
+      } else if (next.remind_offsets_minutes.length > 0) {
+        next.remind_before_minutes =
+          next.remind_before_minutes ?? next.remind_offsets_minutes[0];
+        if (next.reminder_sent_at === undefined) {
+          next.reminder_sent_at = null;
+          next.reminder_snoozed_until = null;
+        }
+      }
+    } else if (next.remind_before_minutes === null) {
+      next.remind_offsets_minutes = [];
       next.reminder_sent_at = REMINDER_DISABLED_SENTINEL;
       next.reminder_snoozed_until = null;
+    } else if (typeof next.remind_before_minutes === "number") {
+      next.remind_offsets_minutes = [next.remind_before_minutes];
+      if (next.reminder_sent_at === undefined) {
+        next.reminder_sent_at = null;
+        next.reminder_snoozed_until = null;
+      }
     } else if (next.reminder_sent_at === undefined) {
       next.reminder_sent_at = null;
       next.reminder_snoozed_until = null;
     }
-  } else if (next.remind_before_minutes !== undefined) {
-    if (next.remind_before_minutes === null) {
+  } else if (Array.isArray(next.remind_offsets_minutes)) {
+    if (next.remind_offsets_minutes.length === 0) {
+      next.remind_before_minutes = null;
       next.reminder_sent_at = REMINDER_DISABLED_SENTINEL;
       next.reminder_snoozed_until = null;
-    } else if (next.reminder_sent_at === undefined) {
-      next.reminder_sent_at = null;
+    } else {
+      next.remind_before_minutes = next.remind_offsets_minutes[0];
+      if (next.reminder_sent_at === undefined) {
+        next.reminder_sent_at = null;
+        next.reminder_snoozed_until = null;
+      }
+    }
+  } else if (next.remind_before_minutes !== undefined) {
+    if (next.remind_before_minutes === null) {
+      next.remind_offsets_minutes = [];
+      next.reminder_sent_at = REMINDER_DISABLED_SENTINEL;
       next.reminder_snoozed_until = null;
+    } else {
+      next.remind_offsets_minutes = [next.remind_before_minutes];
+      if (next.reminder_sent_at === undefined) {
+        next.reminder_sent_at = null;
+        next.reminder_snoozed_until = null;
+      }
     }
   }
   return next;
@@ -767,6 +858,7 @@ export async function createTask(
   const prepared = enrichScheduleFieldsOnInsert(input, timeZone);
   const { data, error } = await db.from("tasks").insert(prepared).select("*").single();
   if (error) throw error;
+  await syncTaskRemindersToQueue(db, data, { timeZone });
   return data;
 }
 
@@ -784,6 +876,7 @@ export async function updateTask(
     .select("*")
     .single();
   if (error) throw error;
+  await syncTaskRemindersToQueue(db, data, { timeZone });
   return data;
 }
 
@@ -802,10 +895,12 @@ export async function toggleTaskDone(
     .select("*")
     .single();
   if (error) throw error;
+  await syncTaskRemindersToQueue(db, data);
   return data;
 }
 
 export async function deleteTask(db: TypedSupabaseClient, id: number): Promise<void> {
+  await cancelEntityRemindersInQueue(db, String(id), ["task_start", "waiting_followup"]);
   const { error } = await db.from("tasks").delete().eq("id", id);
   if (error) throw error;
 }
@@ -908,7 +1003,7 @@ export async function getDueTaskReminders(
       return !Number.isNaN(snoozeMs) && nowMs >= snoozeMs && nowMs <= snoozeMs + 30 * 60_000;
     }
     const startMs = Date.parse(task.scheduled_start_at);
-    const leadMins = task.remind_before_minutes ?? 15;
+    const leadMins = task.remind_before_minutes ?? DEFAULT_REMINDER_LEAD_MINUTES;
     const triggerMs = startMs - leadMins * 60_000;
     return nowMs >= triggerMs && startMs >= nowMs - 15 * 60_000;
   });
@@ -1001,7 +1096,7 @@ export async function upsertDayPlan(
 }
 
 // ============================================================================
-// State Check-ins (Pulse) & Evening Review Full CRUD
+// State Check-ins (Pulse 1..10) & Evening Review Full CRUD
 // ============================================================================
 
 export async function listStateCheckins(
@@ -1158,7 +1253,7 @@ export async function deleteDailyReview(
 }
 
 // ============================================================================
-// Assistant Settings, Agreements, Threads & Human-in-the-Loop Pending Actions
+// Assistant Settings, Agreements, Threads & Pending Actions
 // ============================================================================
 
 export async function getAssistantSettings(
@@ -1421,7 +1516,7 @@ export async function executePendingAction(
           : raw.remind_before_minutes !== undefined
             ? Number(raw.remind_before_minutes)
             : scheduledStartAt
-              ? 15
+              ? DEFAULT_REMINDER_LEAD_MINUTES
               : null;
 
       const existingSimilar = await findSimilarActiveTasks(db, {
@@ -1458,6 +1553,8 @@ export async function executePendingAction(
           project_id: raw.project_id ? Number(raw.project_id) : null,
           status: (raw.status as TaskStatus) ?? "todo",
           priority: Number(raw.priority ?? 2),
+          tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : [],
+          subtasks: (Array.isArray(raw.subtasks) ? raw.subtasks : []) as Json,
           planned_date: plannedDate,
           day_slot: daySlot,
           estimated_minutes: estimatedMinutes,
@@ -1466,6 +1563,10 @@ export async function executePendingAction(
           scheduled_end_at: scheduledEndAt,
           is_meeting: isMeeting,
           remind_before_minutes: remindBeforeMinutes ?? undefined,
+          remind_offsets_minutes: Array.isArray(raw.remind_offsets_minutes)
+            ? (raw.remind_offsets_minutes as number[])
+            : undefined,
+          recurrence_rule: raw.recurrence_rule ? String(raw.recurrence_rule) : null,
           waiting_on_person: raw.waiting_on_person ? String(raw.waiting_on_person) : null,
           waiting_context: raw.waiting_context ? String(raw.waiting_context) : null,
           waiting_since: raw.status === "waiting" ? formatIsoDate(new Date(), timeZone) : null,
@@ -1614,7 +1715,7 @@ export async function executePendingAction(
 }
 
 // ============================================================================
-// Composite Snapshot Helpers (Dashboard + Bot Grounding)
+// Composite Snapshot Helpers (Dashboard + MCP/Notifier Grounding)
 // ============================================================================
 
 export async function getFinanceBalanceSummary(
@@ -1679,17 +1780,19 @@ export async function getAssistantFullContext(
   todayDate: string = formatIsoDate()
 ) {
   const horizonEnd = addDaysToIsoDate(todayDate, 14);
-  const [settings, agreements, overview, upcomingTasks, todayReview] = await Promise.all([
-    getAssistantSettings(db),
-    listAssistantAgreements(db, true),
-    getTodayOverview(db, todayDate),
-    listTasksInDateRange(db, {
-      startDate: todayDate,
-      endDate: horizonEnd,
-      includeDone: false,
-    }),
-    getDailyReview(db, todayDate),
-  ]);
+  const [settings, agreements, overview, upcomingTasks, todayReview, eveningCriteria] =
+    await Promise.all([
+      getAssistantSettings(db),
+      listAssistantAgreements(db, true),
+      getTodayOverview(db, todayDate),
+      listTasksInDateRange(db, {
+        startDate: todayDate,
+        endDate: horizonEnd,
+        includeDone: false,
+      }),
+      getDailyReview(db, todayDate),
+      listEveningCriteria(db),
+    ]);
 
   return {
     settings,
@@ -1697,6 +1800,7 @@ export async function getAssistantFullContext(
     overview,
     upcomingTasks,
     todayReview,
+    eveningCriteria,
   };
 }
 

@@ -83,10 +83,10 @@ export function JournalView({
     todayReview ? "evening" : "pulse"
   );
 
-  // Intraday pulse create form
-  const [energy, setEnergy] = React.useState("4");
-  const [mood, setMood] = React.useState("4");
-  const [tension, setTension] = React.useState("2");
+  // Intraday pulse create form (1–10 scale matching OpenClaw MCP)
+  const [energy, setEnergy] = React.useState("7");
+  const [mood, setMood] = React.useState("7");
+  const [tension, setTension] = React.useState("3");
   const [selectedTags, setSelectedTags] = React.useState<string[]>([]);
   const [pulseNote, setPulseNote] = React.useState("");
 
@@ -371,52 +371,56 @@ export function JournalView({
               <form onSubmit={handleSaveCheckin} className="flex flex-col gap-4">
                 <FieldGroup className="gap-3.5">
                   <Field>
-                    <FieldLabel>Энергия (1 — на нуле, 5 — пик)</FieldLabel>
+                    <FieldLabel>Энергия (1 — на нуле, 10 — пик)</FieldLabel>
                     <ToggleGroup
                       type="single"
                       value={energy}
                       onValueChange={(v) => v && setEnergy(v)}
                       variant="outline"
                       spacing={1}
-                      className="w-full"
+                      className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
                     >
-                      {["1", "2", "3", "4", "5"].map((v) => (
-                        <ToggleGroupItem
-                          key={v}
-                          value={v}
-                          className="min-h-11 flex-1 num-tabular"
-                        >
-                          {v}
-                        </ToggleGroupItem>
-                      ))}
+                      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(
+                        (v) => (
+                          <ToggleGroupItem
+                            key={v}
+                            value={v}
+                            className="min-h-10 w-full rounded-lg num-tabular"
+                          >
+                            {v}
+                          </ToggleGroupItem>
+                        )
+                      )}
                     </ToggleGroup>
                   </Field>
 
                   <Field>
-                    <FieldLabel>Настроение (1–5)</FieldLabel>
+                    <FieldLabel>Настроение (1–10)</FieldLabel>
                     <ToggleGroup
                       type="single"
                       value={mood}
                       onValueChange={(v) => v && setMood(v)}
                       variant="outline"
                       spacing={1}
-                      className="w-full"
+                      className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
                     >
-                      {["1", "2", "3", "4", "5"].map((v) => (
-                        <ToggleGroupItem
-                          key={v}
-                          value={v}
-                          className="min-h-11 flex-1 num-tabular"
-                        >
-                          {v}
-                        </ToggleGroupItem>
-                      ))}
+                      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(
+                        (v) => (
+                          <ToggleGroupItem
+                            key={v}
+                            value={v}
+                            className="min-h-10 w-full rounded-lg num-tabular"
+                          >
+                            {v}
+                          </ToggleGroupItem>
+                        )
+                      )}
                     </ToggleGroup>
                   </Field>
 
                   <Field>
                     <FieldLabel>
-                      Напряжение / стресс (1 — спокойно, 5 — перегруз)
+                      Напряжение / стресс (1 — спокойно, 10 — перегруз)
                     </FieldLabel>
                     <ToggleGroup
                       type="single"
@@ -424,17 +428,19 @@ export function JournalView({
                       onValueChange={(v) => v && setTension(v)}
                       variant="outline"
                       spacing={1}
-                      className="w-full"
+                      className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
                     >
-                      {["1", "2", "3", "4", "5"].map((v) => (
-                        <ToggleGroupItem
-                          key={v}
-                          value={v}
-                          className="min-h-11 flex-1 num-tabular"
-                        >
-                          {v}
-                        </ToggleGroupItem>
-                      ))}
+                      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(
+                        (v) => (
+                          <ToggleGroupItem
+                            key={v}
+                            value={v}
+                            className="min-h-10 w-full rounded-lg num-tabular"
+                          >
+                            {v}
+                          </ToggleGroupItem>
+                        )
+                      )}
                     </ToggleGroup>
                   </Field>
 
@@ -526,14 +532,14 @@ export function JournalView({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant="secondary" className="num-tabular">
-                            Энергия {item.energy_score}/5
+                            Энергия {item.energy_score}/10
                           </Badge>
                           <Badge variant="secondary" className="num-tabular">
-                            Настроение {item.mood_score}/5
+                            Настроение {item.mood_score}/10
                           </Badge>
                           {item.tension_score ? (
                             <Badge variant="outline" className="num-tabular">
-                              Напряжение {item.tension_score}/5
+                              Напряжение {item.tension_score}/10
                             </Badge>
                           ) : null}
                         </div>
@@ -970,20 +976,20 @@ export function JournalView({
         <form onSubmit={handleUpdateCheckin} className="flex flex-col gap-4">
           <FieldGroup className="gap-3.5">
             <Field>
-              <FieldLabel>Энергия (1–5)</FieldLabel>
+              <FieldLabel>Энергия (1–10)</FieldLabel>
               <ToggleGroup
                 type="single"
                 value={editEnergy}
                 onValueChange={(v) => v && setEditEnergy(v)}
                 variant="outline"
                 spacing={1}
-                className="w-full"
+                className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
               >
-                {["1", "2", "3", "4", "5"].map((v) => (
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map((v) => (
                   <ToggleGroupItem
                     key={v}
                     value={v}
-                    className="min-h-11 flex-1 num-tabular"
+                    className="min-h-10 w-full rounded-lg num-tabular"
                   >
                     {v}
                   </ToggleGroupItem>
@@ -992,20 +998,20 @@ export function JournalView({
             </Field>
 
             <Field>
-              <FieldLabel>Настроение (1–5)</FieldLabel>
+              <FieldLabel>Настроение (1–10)</FieldLabel>
               <ToggleGroup
                 type="single"
                 value={editMood}
                 onValueChange={(v) => v && setEditMood(v)}
                 variant="outline"
                 spacing={1}
-                className="w-full"
+                className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
               >
-                {["1", "2", "3", "4", "5"].map((v) => (
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map((v) => (
                   <ToggleGroupItem
                     key={v}
                     value={v}
-                    className="min-h-11 flex-1 num-tabular"
+                    className="min-h-10 w-full rounded-lg num-tabular"
                   >
                     {v}
                   </ToggleGroupItem>
@@ -1014,20 +1020,20 @@ export function JournalView({
             </Field>
 
             <Field>
-              <FieldLabel>Напряжение (1–5)</FieldLabel>
+              <FieldLabel>Напряжение (1–10)</FieldLabel>
               <ToggleGroup
                 type="single"
                 value={editTension}
                 onValueChange={(v) => v && setEditTension(v)}
                 variant="outline"
                 spacing={1}
-                className="w-full"
+                className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
               >
-                {["1", "2", "3", "4", "5"].map((v) => (
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map((v) => (
                   <ToggleGroupItem
                     key={v}
                     value={v}
-                    className="min-h-11 flex-1 num-tabular"
+                    className="min-h-10 w-full rounded-lg num-tabular"
                   >
                     {v}
                   </ToggleGroupItem>

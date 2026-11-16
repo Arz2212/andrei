@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
+  DEFAULT_REMINDER_LEAD_MINUTES,
   buildScheduledRangeFromClockTime,
   cancelPendingAction,
   createAssistantAgreement,
@@ -36,9 +37,11 @@ import {
   upsertEveningCriterion,
   type DailyReview,
   type DashboardWidgetLayoutItem,
+  type Database,
   type DayPlan,
   type DaySlot,
   type LifeArea,
+  type SubtaskItem,
   type Task,
   type TaskStatus,
 } from "@life-os/db";
@@ -158,6 +161,9 @@ export interface SaveTaskPayload {
   notes?: string | null;
   status?: TaskStatus;
   priority?: number;
+  tags?: string[];
+  subtasks?: SubtaskItem[];
+  recurrence_rule?: string | null;
   planned_date?: string | null;
   day_slot?: DaySlot;
   estimated_minutes?: number | null;
@@ -166,6 +172,7 @@ export interface SaveTaskPayload {
   scheduled_time?: string | null;
   is_meeting?: boolean;
   remind_before_minutes?: number | null;
+  remind_offsets_minutes?: number[];
   waiting_on_person?: string | null;
   waiting_context?: string | null;
   follow_up_at?: string | null;
@@ -209,14 +216,37 @@ export async function saveTaskAction(payload: SaveTaskPayload) {
   const remindBeforeMinutes = scheduledStartAt
     ? payload.remind_before_minutes !== undefined
       ? payload.remind_before_minutes
-      : 15
+      : DEFAULT_REMINDER_LEAD_MINUTES
     : null;
+
+  const remindOffsetsMinutes =
+    scheduledStartAt && remindBeforeMinutes !== null
+      ? payload.remind_offsets_minutes?.length
+        ? payload.remind_offsets_minutes
+        : [remindBeforeMinutes]
+      : [];
+
+  const cleanTags = (payload.tags ?? [])
+    .map((t) => t.trim().replace(/^#/, ""))
+    .filter(Boolean);
+
+  const cleanSubtasks = (payload.subtasks ?? [])
+    .filter((s) => s.title.trim().length > 0)
+    .map((s) => ({
+      id: s.id || `sub_${Math.random().toString(36).slice(2, 9)}`,
+      title: s.title.trim(),
+      done: Boolean(s.done),
+    }));
 
   const common = {
     title,
     notes: payload.notes?.trim() || null,
     status,
     priority: payload.priority ?? 2,
+    tags: cleanTags,
+    subtasks:
+      cleanSubtasks as unknown as Database["public"]["Tables"]["tasks"]["Insert"]["subtasks"],
+    recurrence_rule: payload.recurrence_rule?.trim() || null,
     planned_date: plannedDate,
     day_slot: daySlot,
     estimated_minutes: estimatedMinutes,
@@ -226,6 +256,7 @@ export async function saveTaskAction(payload: SaveTaskPayload) {
     scheduled_end_at: scheduledEndAt,
     is_meeting: isMeeting,
     remind_before_minutes: remindBeforeMinutes,
+    remind_offsets_minutes: remindOffsetsMinutes,
     waiting_on_person: isWaiting ? payload.waiting_on_person?.trim() || null : null,
     waiting_context: isWaiting ? payload.waiting_context?.trim() || null : null,
     follow_up_at:

@@ -385,9 +385,18 @@ export function TasksView({
       task.remind_before_minutes !== null &&
       task.reminder_sent_at !== REMINDER_DISABLED_SENTINEL;
 
+    const subtaskList = Array.isArray(task.subtasks)
+      ? (task.subtasks as { done?: boolean }[])
+      : [];
+    const doneSubtasks = subtaskList.filter((s) => Boolean(s?.done)).length;
+
     const metaParts = [
       project?.title ?? null,
       slotInfo.label,
+      subtaskList.length > 0
+        ? `шаги ${doneSubtasks}/${subtaskList.length}`
+        : null,
+      task.recurrence_rule ? `↻ ${task.recurrence_rule}` : null,
       task.due_date ? `срок ${formatDateShortRu(task.due_date)}` : null,
     ].filter(Boolean);
 
@@ -451,6 +460,16 @@ export function TasksView({
 
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <span>{metaParts.join(" · ")}</span>
+            {Array.isArray(task.tags) && task.tags.length > 0
+              ? task.tags.slice(0, 3).map((tg) => (
+                  <span
+                    key={tg}
+                    className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                  >
+                    #{tg}
+                  </span>
+                ))
+              : null}
           </div>
         </button>
 

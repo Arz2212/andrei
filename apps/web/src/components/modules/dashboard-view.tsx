@@ -817,53 +817,59 @@ export function DashboardView({
               </div>
               <CardDescription>
                 {latestCheckin
-                  ? `Последняя отметка: энергия ${latestCheckin.energy_score}/5, настроение ${latestCheckin.mood_score}/5`
-                  : "Отметь текущий ресурс в два нажатия"}
+                  ? `Последняя отметка: энергия ${latestCheckin.energy_score}/10, настроение ${latestCheckin.mood_score}/10`
+                  : "Отметь текущий ресурс (шкала 1–10)"}
               </CardDescription>
             </CardHeader>
 
             <CardContent className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
-                <span className="text-xs text-muted-foreground">Энергия</span>
+                <span className="text-xs text-muted-foreground">Энергия (1–10)</span>
                 <ToggleGroup
                   type="single"
                   value={pulseEnergy}
                   onValueChange={(v) => v && setPulseEnergy(v)}
                   variant="outline"
                   spacing={1}
-                  className="w-full"
+                  className="grid w-full grid-cols-5 gap-1"
                 >
-                  {["1", "2", "3", "4", "5"].map((n) => (
-                    <ToggleGroupItem
-                      key={n}
-                      value={n}
-                      className="min-h-10 flex-1 rounded-lg num-tabular"
-                    >
-                      {n}
-                    </ToggleGroupItem>
-                  ))}
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(
+                    (n) => (
+                      <ToggleGroupItem
+                        key={n}
+                        value={n}
+                        className="min-h-9 w-full rounded-lg num-tabular"
+                      >
+                        {n}
+                      </ToggleGroupItem>
+                    )
+                  )}
                 </ToggleGroup>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-xs text-muted-foreground">Настроение</span>
+                <span className="text-xs text-muted-foreground">
+                  Настроение (1–10)
+                </span>
                 <ToggleGroup
                   type="single"
                   value={pulseMood}
                   onValueChange={(v) => v && setPulseMood(v)}
                   variant="outline"
                   spacing={1}
-                  className="w-full"
+                  className="grid w-full grid-cols-5 gap-1"
                 >
-                  {["1", "2", "3", "4", "5"].map((n) => (
-                    <ToggleGroupItem
-                      key={n}
-                      value={n}
-                      className="min-h-10 flex-1 rounded-lg num-tabular"
-                    >
-                      {n}
-                    </ToggleGroupItem>
-                  ))}
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(
+                    (n) => (
+                      <ToggleGroupItem
+                        key={n}
+                        value={n}
+                        className="min-h-9 w-full rounded-lg num-tabular"
+                      >
+                        {n}
+                      </ToggleGroupItem>
+                    )
+                  )}
                 </ToggleGroup>
               </div>
 
@@ -1245,20 +1251,20 @@ export function DashboardView({
         <form onSubmit={handleUpdateLatestPulse} className="flex flex-col gap-4">
           <FieldGroup className="gap-3.5">
             <Field>
-              <FieldLabel>Энергия (1–5)</FieldLabel>
+              <FieldLabel>Энергия (1–10)</FieldLabel>
               <ToggleGroup
                 type="single"
                 value={editPulseEnergy}
                 onValueChange={(v) => v && setEditPulseEnergy(v)}
                 variant="outline"
                 spacing={1}
-                className="w-full"
+                className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
               >
-                {["1", "2", "3", "4", "5"].map((n) => (
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map((n) => (
                   <ToggleGroupItem
                     key={n}
                     value={n}
-                    className="min-h-11 flex-1 num-tabular"
+                    className="min-h-10 w-full rounded-lg num-tabular"
                   >
                     {n}
                   </ToggleGroupItem>
@@ -1266,20 +1272,20 @@ export function DashboardView({
               </ToggleGroup>
             </Field>
             <Field>
-              <FieldLabel>Настроение (1–5)</FieldLabel>
+              <FieldLabel>Настроение (1–10)</FieldLabel>
               <ToggleGroup
                 type="single"
                 value={editPulseMood}
                 onValueChange={(v) => v && setEditPulseMood(v)}
                 variant="outline"
                 spacing={1}
-                className="w-full"
+                className="grid w-full grid-cols-5 gap-1.5 sm:grid-cols-10"
               >
-                {["1", "2", "3", "4", "5"].map((n) => (
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map((n) => (
                   <ToggleGroupItem
                     key={n}
                     value={n}
-                    className="min-h-11 flex-1 num-tabular"
+                    className="min-h-10 w-full rounded-lg num-tabular"
                   >
                     {n}
                   </ToggleGroupItem>

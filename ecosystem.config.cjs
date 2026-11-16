@@ -44,15 +44,15 @@ module.exports = {
       max_memory_restart: "750M",
     },
     {
-      name: "life-os-bot",
-      cwd: path.join(__dirname, "apps/bot"),
-      script: "pnpm",
-      args: "start",
+      name: "life-os-notifier",
+      cwd: path.join(__dirname, "packages/notifier"),
+      script: "dist/index.js",
+      interpreter: "node",
       env: {
         ...sharedEnv,
       },
       autorestart: true,
-      max_memory_restart: "512M",
+      max_memory_restart: "256M",
     },
   ],
 };

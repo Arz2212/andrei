@@ -10,7 +10,10 @@ import {
   Loader2Icon,
   SparklesIcon,
 } from "lucide-react";
-import type { DaySlot } from "@life-os/db";
+import {
+  DEFAULT_REMINDER_LEAD_MINUTES,
+  type DaySlot,
+} from "@life-os/db";
 import {
   checkTaskConflictAction,
   createAgreementAction,
@@ -111,7 +114,9 @@ export function QuickCaptureDrawer({
             scheduled_time: useScheduled && scheduledTime ? scheduledTime : null,
             is_meeting: useScheduled ? isMeeting : false,
             remind_before_minutes:
-              useScheduled && scheduledTime ? (isMeeting ? 15 : 0) : null,
+              useScheduled && scheduledTime
+                ? DEFAULT_REMINDER_LEAD_MINUTES
+                : null,
             day_slot: slot,
             estimated_minutes: Number(minutes) || null,
             status: useScheduled ? "todo" : "inbox",
@@ -269,7 +274,7 @@ export function QuickCaptureDrawer({
                         className="items-center justify-between rounded-xl border border-border/80 px-3.5 py-2.5"
                       >
                         <FieldLabel htmlFor="qc-meeting" className="font-normal text-sm">
-                          Встреча (напомнить за 15 мин в Telegram)
+                          Встреча (уведомление за 30 мин в Telegram)
                         </FieldLabel>
                         <Switch
                           id="qc-meeting"
@@ -328,46 +333,50 @@ export function QuickCaptureDrawer({
             {mode === "state" ? (
               <FieldGroup className="gap-3.5">
                 <Field>
-                  <FieldLabel>Энергия (1–5)</FieldLabel>
+                  <FieldLabel>Энергия (1–10)</FieldLabel>
                   <ToggleGroup
                     type="single"
                     value={energy}
                     onValueChange={(v) => v && setEnergy(v)}
                     variant="outline"
-                    spacing={2}
-                    className="w-full"
+                    spacing={1}
+                    className="grid w-full grid-cols-5 gap-1.5"
                   >
-                    {["1", "2", "3", "4", "5"].map((val) => (
-                      <ToggleGroupItem
-                        key={val}
-                        value={val}
-                        className="min-h-11 flex-1 rounded-xl num-tabular"
-                      >
-                        {val}
-                      </ToggleGroupItem>
-                    ))}
+                    {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(
+                      (val) => (
+                        <ToggleGroupItem
+                          key={val}
+                          value={val}
+                          className="min-h-10 w-full rounded-xl num-tabular"
+                        >
+                          {val}
+                        </ToggleGroupItem>
+                      )
+                    )}
                   </ToggleGroup>
                 </Field>
 
                 <Field>
-                  <FieldLabel>Настроение (1–5)</FieldLabel>
+                  <FieldLabel>Настроение (1–10)</FieldLabel>
                   <ToggleGroup
                     type="single"
                     value={mood}
                     onValueChange={(v) => v && setMood(v)}
                     variant="outline"
-                    spacing={2}
-                    className="w-full"
+                    spacing={1}
+                    className="grid w-full grid-cols-5 gap-1.5"
                   >
-                    {["1", "2", "3", "4", "5"].map((val) => (
-                      <ToggleGroupItem
-                        key={val}
-                        value={val}
-                        className="min-h-11 flex-1 rounded-xl num-tabular"
-                      >
-                        {val}
-                      </ToggleGroupItem>
-                    ))}
+                    {["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(
+                      (val) => (
+                        <ToggleGroupItem
+                          key={val}
+                          value={val}
+                          className="min-h-10 w-full rounded-xl num-tabular"
+                        >
+                          {val}
+                        </ToggleGroupItem>
+                      )
+                    )}
                   </ToggleGroup>
                 </Field>
 

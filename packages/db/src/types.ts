@@ -32,9 +32,23 @@ export interface DashboardWidgetLayoutItem {
 }
 
 export type Goal = Tables<"goals">;
+export type GoalInsert = TablesInsert<"goals">;
+export type GoalUpdate = TablesUpdate<"goals">;
+
 export type Project = Tables<"projects">;
 export type ProjectInsert = TablesInsert<"projects">;
 export type ProjectUpdate = TablesUpdate<"projects">;
+
+export interface FuzzyProjectMatch {
+  project: Project;
+  score: number;
+}
+
+export interface SubtaskItem {
+  id: string;
+  title: string;
+  done: boolean;
+}
 
 export type Task = Tables<"tasks">;
 export type TaskInsert = TablesInsert<"tasks">;
@@ -42,6 +56,7 @@ export type TaskUpdate = TablesUpdate<"tasks">;
 export type TaskStatus = "inbox" | "todo" | "in_progress" | "waiting" | "done" | "cancelled";
 export type DaySlot = "morning" | "afternoon" | "evening" | "any";
 export type LifeArea = "work" | "study" | "launch" | "personal" | "health";
+export type RecordSource = "web" | "telegram" | "mcp" | "openclaw";
 
 export interface TimeConflict {
   task: Task;
@@ -55,6 +70,17 @@ export interface FuzzyTaskMatch {
   task: Task;
   score: number;
 }
+
+export type ReminderQueueItem = Tables<"reminders_queue">;
+export type ReminderQueueInsert = TablesInsert<"reminders_queue">;
+export type ReminderQueueUpdate = TablesUpdate<"reminders_queue">;
+export type ReminderEntityType =
+  | "task_start"
+  | "waiting_followup"
+  | "standalone_reminder"
+  | "morning_digest"
+  | "evening_review";
+export type ReminderStatus = "pending" | "sent" | "cancelled" | "failed";
 
 export type DayPlan = Tables<"day_plans">;
 export type DayPlanInsert = TablesInsert<"day_plans">;
@@ -99,6 +125,20 @@ export type PendingActionKind =
 export type FinanceAccount = Tables<"finance_accounts">;
 export type FinanceCategory = Tables<"finance_categories">;
 export type FinanceTransaction = Tables<"finance_transactions">;
+export type FinanceObligation = Tables<"finance_obligations">;
+export type FinanceDebt = Tables<"finance_debts">;
 export type FinanceBalanceSummary = Database["public"]["Views"]["v_finance_balance_summary"]["Row"];
+
+export type WorkoutProgram = Tables<"workout_programs">;
+export type WorkoutSession = Tables<"workout_sessions">;
+export type MedicalDoctor = Tables<"medical_doctors">;
+export type MedicalRecord = Tables<"medical_records">;
+
+export type Recipe = Tables<"recipes">;
+export type RecipeIngredient = Tables<"recipe_ingredients">;
+export type MealPlanEntry = Tables<"meal_plan_entries">;
+export type PantryItem = Tables<"pantry_items">;
+export type ShoppingListItem = Tables<"shopping_list_items">;
+
 export type Habit = Tables<"habits">;
 export type HabitLog = Tables<"habit_logs">;

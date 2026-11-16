@@ -6,15 +6,21 @@ import {
   AlertTriangleIcon,
   BellIcon,
   ClockIcon,
+  ListChecksIcon,
   Loader2Icon,
+  PlusIcon,
+  RepeatIcon,
+  TagIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
 import {
+  DEFAULT_REMINDER_LEAD_MINUTES,
   REMINDER_DISABLED_SENTINEL,
   extractLocalTimeParts,
   type DaySlot,
   type Project,
+  type SubtaskItem,
   type Task,
   type TaskStatus,
 } from "@life-os/db";
@@ -26,6 +32,8 @@ import {
 } from "@/app/actions";
 import { ResponsiveModal } from "@/components/shell/responsive-modal";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -40,6 +48,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+function parseSubtasksFromTask(task: Task | null): SubtaskItem[] {
+  if (!task || !Array.isArray(task.subtasks)) return [];
+  const items: SubtaskItem[] = [];
+  for (const raw of task.subtasks) {
+    if (raw && typeof raw === "object" && "title" in raw) {
+      const obj = raw as Record<string, unknown>;
+      items.push({
+        id: String(obj.id || `sub_${Math.random().toString(36).slice(2, 8)}`),
+        title: String(obj.title || ""),
+        done: Boolean(obj.done),
+      });
+    }
+  }
+  return items;
+}
 
 interface TaskFormModalProps {
   open: boolean;
@@ -73,7 +97,15 @@ export function TaskFormModal({
   const [plannedDate, setPlannedDate] = React.useState("");
   const [scheduledTime, setScheduledTime] = React.useState("");
   const [isMeeting, setIsMeeting] = React.useState(false);
-  const [remindOption, setRemindOption] = React.useState("15");
+  const [remindOption, setRemindOption] = React.useState(
+    String(DEFAULT_REMINDER_LEAD_MINUTES)
+  );
+  const [recurrenceRule, setRecurrenceRule] = React.useState("none");
+  const [tags, setTags] = React.useState<string[]>([]);
+  const [tagDraft, setTagDraft] = React.useState("");
+  const [subtasks, setSubtasks] = React.useState<SubtaskItem[]>([]);
+  const [subtaskDraft, setSubtaskDraft] = React.useState("");
+
   const [daySlot, setDaySlot] = React.useState<DaySlot>("any");
   const [estimatedMinutes, setEstimatedMinutes] = React.useState("");
   const [dueDate, setDueDate] = React.useState("");
@@ -107,6 +139,11 @@ export function TaskFormModal({
             : "none"
       );
       setIsMeeting(Boolean(task?.is_meeting));
+      setRecurrenceRule(task?.recurrence_rule || "none");
+      setTags(Array.isArray(task?.tags) ? task.tags : []);
+      setTagDraft("");
+      setSubtasks(parseSubtasksFromTask(task));
+      setSubtaskDraft("");
       setWaitingPerson(task?.waiting_on_person ?? "");
       setWaitingContext(task?.waiting_context ?? "");
       setFollowUpDate(task?.follow_up_at ? task.follow_up_at.slice(0, 10) : "");
@@ -124,11 +161,13 @@ export function TaskFormModal({
         ) {
           setRemindOption("none");
         } else {
-          setRemindOption(String(task.remind_before_minutes ?? 15));
+          setRemindOption(
+            String(task.remind_before_minutes ?? DEFAULT_REMINDER_LEAD_MINUTES)
+          );
         }
       } else {
         setScheduledTime(defaultScheduledTime ?? "");
-        setRemindOption("15");
+        setRemindOption(String(DEFAULT_REMINDER_LEAD_MINUTES));
       }
     }
   }, [
@@ -179,6 +218,30 @@ export function TaskFormModal({
     }
   }
 
+  function addDraftTags(raw: string) {
+    const split = raw
+      .split(/[,;]+/)
+      .map((s) => s.trim().replace(/^#/, ""))
+      .filter(Boolean);
+    if (split.length === 0) return;
+    setTags((prev) => Array.from(new Set([...prev, ...split])));
+    setTagDraft("");
+  }
+
+  function addSubtaskItem() {
+    const clean = subtaskDraft.trim();
+    if (!clean) return;
+    setSubtasks((prev) => [
+      ...prev,
+      {
+        id: `sub_${Date.now().toString(36)}_${prev.length}`,
+        title: clean,
+        done: false,
+      },
+    ]);
+    setSubtaskDraft("");
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
@@ -186,12 +249,38 @@ export function TaskFormModal({
         const remindBefore =
           !scheduledTime || remindOption === "none" ? null : Number(remindOption);
 
+        const finalTags = tagDraft.trim()
+          ? Array.from(
+              new Set([
+                ...tags,
+                ...tagDraft
+                  .split(/[,;]+/)
+                  .map((s) => s.trim().replace(/^#/, ""))
+                  .filter(Boolean),
+              ])
+            )
+          : tags;
+
+        const finalSubtasks = subtaskDraft.trim()
+          ? [
+              ...subtasks,
+              {
+                id: `sub_${Date.now().toString(36)}`,
+                title: subtaskDraft.trim(),
+                done: false,
+              },
+            ]
+          : subtasks;
+
         await saveTaskAction({
           id: task?.id,
           title,
           notes,
           status,
           priority: Number(priority) || 2,
+          tags: finalTags,
+          subtasks: finalSubtasks,
+          recurrence_rule: recurrenceRule === "none" ? null : recurrenceRule,
           planned_date: plannedDate || null,
           scheduled_time: scheduledTime || null,
           is_meeting: isMeeting,
@@ -234,7 +323,7 @@ export function TaskFormModal({
       open={open}
       onOpenChange={onOpenChange}
       title={task ? "Редактировать задачу" : "Новая задача"}
-      description="Гибкие слоты или точное время встречи с проверкой пересечений и напоминанием в Telegram."
+      description="Полная синхронизация полей с календарём, очередью уведомлений и OpenClaw MCP."
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <FieldGroup className="gap-3.5">
@@ -430,8 +519,11 @@ export function TaskFormModal({
                       <SelectItem value="0">Ровно в момент начала</SelectItem>
                       <SelectItem value="10">За 10 минут</SelectItem>
                       <SelectItem value="15">За 15 минут</SelectItem>
-                      <SelectItem value="30">За 30 минут</SelectItem>
+                      <SelectItem value="30">
+                        За 30 минут (по умолчанию)
+                      </SelectItem>
                       <SelectItem value="60">За 1 час</SelectItem>
+                      <SelectItem value="120">За 2 часа</SelectItem>
                       <SelectItem value="none">Не напоминать</SelectItem>
                     </SelectGroup>
                   </SelectContent>
@@ -439,7 +531,7 @@ export function TaskFormModal({
               </Field>
             ) : (
               <div className="flex items-center text-xs text-muted-foreground">
-                Укажи точное время, чтобы бот прислал напоминание в Telegram.
+                Укажи точное время — за 30 мин придёт уведомление в Telegram.
               </div>
             )}
           </div>
@@ -487,7 +579,7 @@ export function TaskFormModal({
             </Field>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field>
               <FieldLabel>Приоритет</FieldLabel>
               <ToggleGroup
@@ -499,13 +591,16 @@ export function TaskFormModal({
                 className="w-full"
               >
                 <ToggleGroupItem value="1" className="min-h-11 flex-1">
-                  1 · Главное
+                  1
                 </ToggleGroupItem>
                 <ToggleGroupItem value="2" className="min-h-11 flex-1">
-                  2 · Важно
+                  2
                 </ToggleGroupItem>
                 <ToggleGroupItem value="3" className="min-h-11 flex-1">
-                  3 · Обычное
+                  3
+                </ToggleGroupItem>
+                <ToggleGroupItem value="4" className="min-h-11 flex-1">
+                  4
                 </ToggleGroupItem>
               </ToggleGroup>
             </Field>
@@ -520,10 +615,152 @@ export function TaskFormModal({
                 className="min-h-11 num-tabular"
               />
             </Field>
+
+            <Field>
+              <FieldLabel className="flex items-center gap-1">
+                <RepeatIcon className="size-3.5 text-muted-foreground" />
+                Повтор
+              </FieldLabel>
+              <Select value={recurrenceRule} onValueChange={setRecurrenceRule}>
+                <SelectTrigger className="min-h-11 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="none">Без повтора</SelectItem>
+                    <SelectItem value="daily">Ежедневно</SelectItem>
+                    <SelectItem value="weekdays">По будням</SelectItem>
+                    <SelectItem value="weekly">Еженедельно</SelectItem>
+                    <SelectItem value="monthly">Ежемесячно</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
           </div>
 
+          {/* Subtasks / Checklist */}
           <Field>
-            <FieldLabel htmlFor="task-notes">Заметки и детали</FieldLabel>
+            <FieldLabel className="flex items-center gap-1.5">
+              <ListChecksIcon className="size-3.5 text-muted-foreground" />
+              Подзадачи / чеклист
+            </FieldLabel>
+            {subtasks.length > 0 ? (
+              <div className="flex flex-col gap-1.5 rounded-xl border border-border/80 bg-muted/25 p-2.5">
+                {subtasks.map((st, idx) => (
+                  <div
+                    key={st.id}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <Checkbox
+                        checked={st.done}
+                        onCheckedChange={(v) =>
+                          setSubtasks((prev) =>
+                            prev.map((item, i) =>
+                              i === idx ? { ...item, done: Boolean(v) } : item
+                            )
+                          )
+                        }
+                      />
+                      <span
+                        className={
+                          st.done
+                            ? "truncate line-through text-muted-foreground"
+                            : "truncate"
+                        }
+                      >
+                        {st.title}
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() =>
+                        setSubtasks((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      aria-label="Удалить шаг"
+                    >
+                      <XIcon />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-2">
+              <Input
+                value={subtaskDraft}
+                onChange={(e) => setSubtaskDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addSubtaskItem();
+                  }
+                }}
+                placeholder="Добавить шаг чеклиста и нажать +"
+                className="min-h-10"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={addSubtaskItem}
+                aria-label="Добавить подзадачу"
+                className="size-10 shrink-0 rounded-xl"
+              >
+                <PlusIcon />
+              </Button>
+            </div>
+          </Field>
+
+          {/* Tags */}
+          <Field>
+            <FieldLabel
+              htmlFor="task-tags"
+              className="flex items-center gap-1.5"
+            >
+              <TagIcon className="size-3.5 text-muted-foreground" />
+              Теги
+            </FieldLabel>
+            {tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((tg) => (
+                  <Badge key={tg} variant="secondary" className="gap-1">
+                    #{tg}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTags((prev) => prev.filter((x) => x !== tg))
+                      }
+                      aria-label={`Удалить тег ${tg}`}
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            <Input
+              id="task-tags"
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  addDraftTags(tagDraft);
+                }
+              }}
+              onBlur={() => {
+                if (tagDraft.trim()) addDraftTags(tagDraft);
+              }}
+              placeholder="Через запятую: диплом, звонок, фокус"
+              className="min-h-10"
+            />
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="task-notes">Описание / заметки</FieldLabel>
             <Textarea
               id="task-notes"
               rows={2}
@@ -534,7 +771,7 @@ export function TaskFormModal({
           </Field>
         </FieldGroup>
 
-        {/* Sticky Footer inside scrollable modal body so buttons never clip */}
+        {/* Sticky Footer inside scrollable modal body */}
         <div className="sticky bottom-0 z-10 -mx-1 mt-1 flex items-center justify-between gap-3 border-t border-border/70 bg-background/95 px-1 pt-3 pb-1 backdrop-blur-xs">
           {task ? (
             <Button
