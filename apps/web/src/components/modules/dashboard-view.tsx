@@ -1218,12 +1218,12 @@ export function DashboardView({
                       }}
                     />
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                    <span className="whitespace-nowrap">
                       Б {diaryTotals.protein_g} · Ж {diaryTotals.fat_g} · У{" "}
                       {diaryTotals.carbs_g} г
                     </span>
-                    <span>
+                    <span className="whitespace-nowrap">
                       {diaryTotals.remaining_kcal >= 0
                         ? `осталось ${diaryTotals.remaining_kcal} ккал`
                         : `+${Math.abs(diaryTotals.remaining_kcal)} ккал`}

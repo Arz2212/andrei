@@ -1011,15 +1011,21 @@ export function NutritionView({ initialTab, data }: NutritionViewProps) {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5 text-xs num-tabular">
-                <div className="flex flex-col gap-1 rounded-xl bg-muted/50 p-2.5">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-muted-foreground">Белки</span>
-                    <span className="font-semibold">
-                      {totals.protein_g} / {targets.protein_target_g} г
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 num-tabular">
+                <div className="flex flex-col justify-between gap-1.5 rounded-xl bg-muted/50 px-2.5 py-2.5 sm:px-3">
+                  <span className="truncate text-[11px] font-medium leading-none text-muted-foreground">
+                    Белки
+                  </span>
+                  <div className="whitespace-nowrap leading-tight">
+                    <span className="text-xs font-semibold text-foreground sm:text-sm">
+                      {totals.protein_g}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {" "}
+                      / {targets.protein_target_g} г
                     </span>
                   </div>
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-background">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
                     <div
                       className="h-full rounded-full bg-domain-work"
                       style={{
@@ -1036,14 +1042,20 @@ export function NutritionView({ initialTab, data }: NutritionViewProps) {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1 rounded-xl bg-muted/50 p-2.5">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-muted-foreground">Жиры</span>
-                    <span className="font-semibold">
-                      {totals.fat_g} / {targets.fat_target_g} г
+                <div className="flex flex-col justify-between gap-1.5 rounded-xl bg-muted/50 px-2.5 py-2.5 sm:px-3">
+                  <span className="truncate text-[11px] font-medium leading-none text-muted-foreground">
+                    Жиры
+                  </span>
+                  <div className="whitespace-nowrap leading-tight">
+                    <span className="text-xs font-semibold text-foreground sm:text-sm">
+                      {totals.fat_g}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {" "}
+                      / {targets.fat_target_g} г
                     </span>
                   </div>
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-background">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
                     <div
                       className="h-full rounded-full bg-domain-nutrition"
                       style={{
@@ -1060,14 +1072,20 @@ export function NutritionView({ initialTab, data }: NutritionViewProps) {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1 rounded-xl bg-muted/50 p-2.5">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-muted-foreground">Углеводы</span>
-                    <span className="font-semibold">
-                      {totals.carbs_g} / {targets.carbs_target_g} г
+                <div className="flex flex-col justify-between gap-1.5 rounded-xl bg-muted/50 px-2.5 py-2.5 sm:px-3">
+                  <span className="truncate text-[11px] font-medium leading-none text-muted-foreground">
+                    Углеводы
+                  </span>
+                  <div className="whitespace-nowrap leading-tight">
+                    <span className="text-xs font-semibold text-foreground sm:text-sm">
+                      {totals.carbs_g}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {" "}
+                      / {targets.carbs_target_g} г
                     </span>
                   </div>
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-background">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
                     <div
                       className="h-full rounded-full bg-domain-finance"
                       style={{
@@ -1091,11 +1109,25 @@ export function NutritionView({ initialTab, data }: NutritionViewProps) {
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
             {/* Top Column Legend & Day Totals Row */}
             <div className="grid grid-cols-12 items-center px-4 text-xs text-muted-foreground num-tabular">
-              <span className="col-span-3 font-medium">Белки {totals.protein_g}</span>
-              <span className="col-span-3 font-medium">Жиры {totals.fat_g}</span>
-              <span className="col-span-3 font-medium">Угл. {totals.carbs_g}</span>
-              <span className="col-span-1 text-right">{totals.pct_of_target}%</span>
-              <span className="col-span-2 text-right text-sm font-bold text-foreground">
+              <span className="col-span-3 truncate whitespace-nowrap font-medium">
+                <span className="hidden sm:inline">Белки </span>
+                <span className="sm:hidden">Б </span>
+                {totals.protein_g}
+              </span>
+              <span className="col-span-3 truncate whitespace-nowrap font-medium">
+                <span className="hidden sm:inline">Жиры </span>
+                <span className="sm:hidden">Ж </span>
+                {totals.fat_g}
+              </span>
+              <span className="col-span-3 truncate whitespace-nowrap font-medium">
+                <span className="hidden sm:inline">Угл. </span>
+                <span className="sm:hidden">У </span>
+                {totals.carbs_g}
+              </span>
+              <span className="col-span-1 whitespace-nowrap text-right">
+                {totals.pct_of_target}%
+              </span>
+              <span className="col-span-2 whitespace-nowrap text-right text-sm font-bold text-foreground">
                 {totals.kcal}
               </span>
             </div>
@@ -1170,10 +1202,16 @@ export function NutritionView({ initialTab, data }: NutritionViewProps) {
                     aria-expanded={isExpanded}
                     className="grid w-full grid-cols-12 items-center border-t border-border/60 bg-muted/65 px-4 py-2.5 text-left text-xs font-medium text-foreground/90 transition-colors hover:bg-muted num-tabular"
                   >
-                    <span className="col-span-3">Б {meal.protein_g}</span>
-                    <span className="col-span-3">Ж {meal.fat_g}</span>
-                    <span className="col-span-3">У {meal.carbs_g}</span>
-                    <span className="col-span-2 text-right text-muted-foreground">
+                    <span className="col-span-3 truncate whitespace-nowrap">
+                      Б {meal.protein_g}
+                    </span>
+                    <span className="col-span-3 truncate whitespace-nowrap">
+                      Ж {meal.fat_g}
+                    </span>
+                    <span className="col-span-3 truncate whitespace-nowrap">
+                      У {meal.carbs_g}
+                    </span>
+                    <span className="col-span-2 whitespace-nowrap text-right text-muted-foreground">
                       {meal.pct_of_day}%
                     </span>
                     <span className="col-span-1 flex justify-end">
