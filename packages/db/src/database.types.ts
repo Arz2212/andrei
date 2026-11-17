@@ -432,6 +432,7 @@ export type Database = {
       }
       finance_categories: {
         Row: {
+          color_token: string
           created_at: string
           icon_name: string
           id: number
@@ -444,6 +445,7 @@ export type Database = {
           voice_aliases: string[]
         }
         Insert: {
+          color_token?: string
           created_at?: string
           icon_name?: string
           id?: never
@@ -456,6 +458,7 @@ export type Database = {
           voice_aliases?: string[]
         }
         Update: {
+          color_token?: string
           created_at?: string
           icon_name?: string
           id?: never
@@ -602,6 +605,7 @@ export type Database = {
           kind: string
           linked_expense_id: number | null
           occurred_at: string
+          original_reimbursable_amount: number
           personal_share_amount: number | null
           raw_voice_phrase: string | null
           receipt_storage_path: string | null
@@ -610,6 +614,7 @@ export type Database = {
           reimbursement_status: string
           source: string
           spend_nature: string
+          tags: string[]
           to_account_id: number | null
           updated_at: string
           user_id: string
@@ -626,6 +631,7 @@ export type Database = {
           kind: string
           linked_expense_id?: number | null
           occurred_at?: string
+          original_reimbursable_amount?: number
           personal_share_amount?: number | null
           raw_voice_phrase?: string | null
           receipt_storage_path?: string | null
@@ -634,6 +640,7 @@ export type Database = {
           reimbursement_status?: string
           source?: string
           spend_nature?: string
+          tags?: string[]
           to_account_id?: number | null
           updated_at?: string
           user_id: string
@@ -650,6 +657,7 @@ export type Database = {
           kind?: string
           linked_expense_id?: number | null
           occurred_at?: string
+          original_reimbursable_amount?: number
           personal_share_amount?: number | null
           raw_voice_phrase?: string | null
           receipt_storage_path?: string | null
@@ -658,6 +666,7 @@ export type Database = {
           reimbursement_status?: string
           source?: string
           spend_nature?: string
+          tags?: string[]
           to_account_id?: number | null
           updated_at?: string
           user_id?: string
@@ -1763,9 +1772,15 @@ export type Database = {
     Views: {
       v_finance_balance_summary: {
         Row: {
+          credit_card_grace_debt: number | null
+          liquid_balance: number | null
+          owed_to_me_total: number | null
           pending_reimbursements: number | null
+          reserved_debts_total: number | null
           safe_to_spend: number | null
           total_balance: number | null
+          total_protected_reserve: number | null
+          upcoming_obligations_total: number | null
           user_id: string | null
         }
         Relationships: []

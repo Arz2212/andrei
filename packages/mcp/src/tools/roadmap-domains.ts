@@ -1,184 +1,14 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  formatIsoDate,
-  getFinanceBalanceSummary,
-  getOwnerBotDbClient,
-} from "@life-os/db";
+import { formatIsoDate, getOwnerBotDbClient } from "@life-os/db";
 import { errResult, okResult, resolveDateInput } from "../helpers";
 
 /**
- * Modular schemas & ready foundation tools for Stages 2–4:
- * - Stage 2: Finance (Safe-to-Spend, accounts, expenses/income, reimbursements, obligations)
+ * Modular schemas & ready foundation tools for Stages 3–4:
  * - Stage 3: Nutrition & Shopping (recipes, pantry, shopping list) + Health (workouts, medical organizer)
  * - Stage 4: Goals & 1-Tap Habits
  */
-export function registerStage2To4DomainTools(server: McpServer): void {
-  // ==========================================================================
-  // STAGE 2 FOUNDATION — FINANCE
-  // ==========================================================================
-
-  server.registerTool(
-    "get_finance_overview",
-    {
-      title: "Сводка по финансам и Safe-to-Spend",
-      description:
-        "Возвращает баланс Safe-to-Spend (доступно для трат за вычетом обязательных платежей и резервов), счета, ближайшие подписки/платежи и последние операции.",
-      inputSchema: {
-        recent_limit: z.number().int().min(1).max(50).optional().describe("Сколько последних операций показать (по умолчанию 15)"),
-      },
-    },
-    async (args) => {
-      try {
-        const { db } = await getOwnerBotDbClient();
-        const [summary, accountsRes, obligationsRes, txRes] = await Promise.all([
-          getFinanceBalanceSummary(db),
-          db
-            .from("finance_accounts")
-            .select("*")
-            .eq("is_archived", false)
-            .order("sort_order", { ascending: true }),
-          db
-            .from("finance_obligations")
-            .select("*")
-            .eq("is_active", true)
-            .order("next_due_date", { ascending: true }),
-          db
-            .from("finance_transactions")
-            .select("*")
-            .order("occurred_at", { ascending: false })
-            .limit(args.recent_limit ?? 15),
-        ]);
-
-        return okResult({
-          ok: true,
-          balance_summary: summary,
-          accounts: accountsRes.data ?? [],
-          upcoming_obligations: obligationsRes.data ?? [],
-          recent_transactions: txRes.data ?? [],
-        });
-      } catch (err) {
-        return errResult(err instanceof Error ? err.message : String(err));
-      }
-    }
-  );
-
-  server.registerTool(
-    "record_finance_transaction",
-    {
-      title: "Записать расход или доход (с поддержкой рабочих компенсаций)",
-      description:
-        "Записывает финансовую операцию в базу и обновляет баланс счёта. Поддерживает отметку рабочих/общих трат с компенсацией (spend_nature), чтобы они не искажали личную аналитику.",
-      inputSchema: {
-        amount: z.number().positive().describe("Сумма операции"),
-        kind: z
-          .enum(["expense", "income", "reimbursement_in"])
-          .optional()
-          .describe("Тип операции: expense (по умолчанию), income, reimbursement_in"),
-        description: z.string().min(1).max(500).describe("Описание покупки или поступления"),
-        category: z.string().optional().describe("Название категории (опционально)"),
-        account: z
-          .union([z.string(), z.number()])
-          .optional()
-          .describe("Название счёта или ID (по умолчанию основной активный счёт)"),
-        currency: z.string().length(3).optional().describe("Валюта ISO (по умолчанию RUB)"),
-        spend_nature: z
-          .enum(["personal", "work_reimbursable", "shared_reimbursable"])
-          .optional()
-          .describe("Характер траты: personal (личная), work_reimbursable (рабочая под возврат), shared_reimbursable (общая)"),
-        reimbursable_amount: z
-          .number()
-          .min(0)
-          .optional()
-          .describe("Сумма к возврату/компенсации (для рабочих и общих покупок)"),
-        reimbursement_counterparty: z
-          .string()
-          .max(200)
-          .optional()
-          .describe("Кто должен компенсировать (компания, партнёр, друг)"),
-        occurred_at: z.string().optional().describe("Дата/время операции (ISO или YYYY-MM-DD)"),
-      },
-    },
-    async (args) => {
-      try {
-        const { db, userId } = await getOwnerBotDbClient();
-        const { data: accounts, error: accErr } = await db
-          .from("finance_accounts")
-          .select("*")
-          .eq("is_archived", false)
-          .order("sort_order", { ascending: true });
-        if (accErr) throw accErr;
-        if (!accounts || accounts.length === 0) {
-          return errResult("Нет активных счетов в базе finance_accounts.");
-        }
-
-        const targetAcc =
-          args.account !== undefined
-            ? accounts.find(
-                (a) =>
-                  a.id === Number(args.account) ||
-                  a.name.toLowerCase().includes(String(args.account).trim().toLowerCase())
-              ) ?? accounts[0]
-            : accounts[0];
-
-        const kind = args.kind ?? "expense";
-        let categoryId: number | null = null;
-        if (args.category?.trim()) {
-          const catKind = kind === "income" ? "income" : "expense";
-          const { data: cats } = await db
-            .from("finance_categories")
-            .select("*")
-            .eq("kind", catKind);
-          const q = args.category.trim().toLowerCase();
-          const matched = (cats ?? []).find(
-            (c) =>
-              c.name.toLowerCase().includes(q) ||
-              (c.voice_aliases ?? []).some((al) => al.toLowerCase().includes(q))
-          );
-          if (matched) categoryId = matched.id;
-        }
-
-        const spendNature = args.spend_nature ?? "personal";
-        const reimbursable =
-          spendNature === "personal"
-            ? 0
-            : args.reimbursable_amount ?? (spendNature === "work_reimbursable" ? args.amount : args.amount / 2);
-
-        const { data: tx, error: txErr } = await db
-          .from("finance_transactions")
-          .insert({
-            user_id: userId,
-            account_id: targetAcc.id,
-            category_id: categoryId,
-            kind,
-            amount: args.amount,
-            currency: (args.currency ?? targetAcc.currency ?? "RUB").toUpperCase(),
-            occurred_at: args.occurred_at ? new Date(args.occurred_at).toISOString() : new Date().toISOString(),
-            description: args.description.trim(),
-            spend_nature: spendNature,
-            personal_share_amount: kind === "expense" ? Math.max(0, args.amount - reimbursable) : null,
-            reimbursable_amount: reimbursable,
-            reimbursement_counterparty: args.reimbursement_counterparty?.trim() || null,
-            reimbursement_status: reimbursable > 0 ? "pending" : "not_applicable",
-            source: "telegram_text",
-          })
-          .select("*")
-          .single();
-        if (txErr) throw txErr;
-
-        const delta = kind === "expense" ? -args.amount : args.amount;
-        await db
-          .from("finance_accounts")
-          .update({ balance: Number(targetAcc.balance) + delta })
-          .eq("id", targetAcc.id);
-
-        return okResult({ ok: true, transaction: tx, account_name: targetAcc.name });
-      } catch (err) {
-        return errResult(err instanceof Error ? err.message : String(err));
-      }
-    }
-  );
-
+export function registerStage3To4DomainTools(server: McpServer): void {
   // ==========================================================================
   // STAGE 3 FOUNDATION — NUTRITION, PANTRY & SHOPPING LIST + HEALTH
   // ==========================================================================
@@ -342,11 +172,19 @@ export function registerStage2To4DomainTools(server: McpServer): void {
     "schedule_workout_window",
     {
       title: "Запланировать или отметить тренировку (плавающее окно)",
-      description: "Создаёт тренировку с плавающим окном дат (window_start_date..window_end_date) и предпочтительным слотом дня.",
+      description:
+        "Создаёт тренировку с плавающим окном дат (window_start_date..window_end_date) и предпочтительным слотом дня.",
       inputSchema: {
-        title: z.string().min(1).max(250).describe("Название тренировки (например, 'Силовая Верх' или 'Кардио')"),
+        title: z
+          .string()
+          .min(1)
+          .max(250)
+          .describe("Название тренировки (например, 'Силовая Верх' или 'Кардио')"),
         window_start_date: z.string().optional().describe("Начало окна YYYY-MM-DD или today/tomorrow"),
-        window_end_date: z.string().optional().describe("Конец окна YYYY-MM-DD (по умолчанию совпадает с началом)"),
+        window_end_date: z
+          .string()
+          .optional()
+          .describe("Конец окна YYYY-MM-DD (по умолчанию совпадает с началом)"),
         planned_date: z.string().nullable().optional().describe("Конкретный выбранный день внутри окна"),
         preferred_slot: z.enum(["morning", "afternoon", "evening", "flexible"]).optional(),
         duration_minutes: z.number().int().min(10).max(300).optional(),
@@ -401,12 +239,22 @@ export function registerStage2To4DomainTools(server: McpServer): void {
         const { db } = await getOwnerBotDbClient();
         const dateStr = resolveDateInput(args.date) ?? formatIsoDate();
         const [goalsRes, habitsRes, logsRes] = await Promise.all([
-          db.from("goals").select("*").eq("status", "active").order("created_at", { ascending: false }),
-          db.from("habits").select("*").eq("is_archived", false).order("sort_order", { ascending: true }),
+          db
+            .from("goals")
+            .select("*")
+            .eq("status", "active")
+            .order("created_at", { ascending: false }),
+          db
+            .from("habits")
+            .select("*")
+            .eq("is_archived", false)
+            .order("sort_order", { ascending: true }),
           db.from("habit_logs").select("*").eq("logged_date", dateStr),
         ]);
 
-        const doneIds = new Set((logsRes.data ?? []).filter((l) => l.completed).map((l) => l.habit_id));
+        const doneIds = new Set(
+          (logsRes.data ?? []).filter((l) => l.completed).map((l) => l.habit_id)
+        );
         return okResult({
           ok: true,
           date: dateStr,
@@ -431,7 +279,10 @@ export function registerStage2To4DomainTools(server: McpServer): void {
         query: z.string().optional().describe("Название привычки (например, 'вода', 'шаги', 'чтение')"),
         habit_id: z.number().int().positive().optional(),
         date: z.string().optional().describe("Дата YYYY-MM-DD (по умолчанию сегодня)"),
-        completed: z.boolean().optional().describe("true — выполнено (по умолчанию), false — снять отметку"),
+        completed: z
+          .boolean()
+          .optional()
+          .describe("true — выполнено (по умолчанию), false — снять отметку"),
       },
     },
     async (args) => {

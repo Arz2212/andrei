@@ -24,10 +24,14 @@ import {
 } from "lucide-react";
 import {
   formatTaskTimeRange,
+  type BalanceViewMode,
   type DashboardWidget,
   type DashboardWidgetLayoutItem,
   type DayPlan,
+  type FinanceAccount,
   type FinanceBalanceSummary,
+  type FinanceCategory,
+  type FinanceObligation,
   type PendingAction,
   type Project,
   type StateCheckin,
@@ -45,6 +49,7 @@ import {
   toggleTaskAction,
   updateStateCheckinAction,
 } from "@/app/actions";
+import { setBalanceViewModeAction } from "@/app/finance-actions";
 import { cn, formatDateShortRu, formatMinutesRu, formatRub } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +70,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ResponsiveModal } from "@/components/shell/responsive-modal";
 import { TaskFormModal } from "@/components/modules/task-form-modal";
+import { TransactionFormModal } from "@/components/modules/finance-modals";
 import { DayTimeline } from "@/components/modules/day-timeline";
 
 const WIDGET_LABELS: Record<WidgetKey, string> = {
@@ -142,6 +148,9 @@ interface DashboardViewProps {
   latestCheckin: StateCheckin | null;
   pendingActions: PendingAction[];
   financeSummary: FinanceBalanceSummary | null;
+  financeAccounts?: FinanceAccount[];
+  financeCategories?: FinanceCategory[];
+  financeObligations?: FinanceObligation[];
 }
 
 export function DashboardView({
@@ -155,6 +164,9 @@ export function DashboardView({
   latestCheckin,
   pendingActions,
   financeSummary,
+  financeAccounts = [],
+  financeCategories = [],
+  financeObligations = [],
 }: DashboardViewProps) {
   const [, startTransition] = React.useTransition();
 
@@ -204,6 +216,27 @@ export function DashboardView({
     React.useState<string | null>(todayDate);
   const [modalScheduledTime, setModalScheduledTime] =
     React.useState<string | null>(null);
+  const [financeTxOpen, setFinanceTxOpen] = React.useState(false);
+
+  // 3-Mode Finance Balance switcher on Home
+  const savedBalMode =
+    (profile?.balance_view_mode as BalanceViewMode) ?? "safe_to_spend";
+  const [balanceMode, setBalanceMode] =
+    React.useState<BalanceViewMode>(savedBalMode);
+  React.useEffect(() => {
+    setBalanceMode(savedBalMode);
+  }, [savedBalMode]);
+
+  function handleSwitchBalanceMode(next: BalanceViewMode) {
+    setBalanceMode(next);
+    startTransition(async () => {
+      try {
+        await setBalanceViewModeAction(next);
+      } catch {
+        toast.error("Не удалось сохранить режим баланса");
+      }
+    });
+  }
 
   // Edit latest pulse modal
   const [pulseEditOpen, setPulseEditOpen] = React.useState(false);
@@ -574,49 +607,187 @@ export function DashboardView({
         const safe = Number(financeSummary?.safe_to_spend ?? 0);
         const total = Number(financeSummary?.total_balance ?? 0);
         const reimb = Number(financeSummary?.pending_reimbursements ?? 0);
+        const upcomingOblTotal = Number(
+          financeSummary?.upcoming_obligations_total ?? 0
+        );
+        const nearestObl = [...financeObligations]
+          .filter((o) => o.is_active)
+          .sort((a, b) => a.next_due_date.localeCompare(b.next_due_date))[0];
 
         return (
           <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-base font-semibold tracking-tight">
-                  Доступно для трат
-                </CardTitle>
-                <WalletIcon className="size-4 text-domain-finance" />
+            <CardHeader className="flex flex-col items-start gap-2.5 pb-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <WalletIcon className="size-4 text-domain-finance" />
+                  <CardTitle className="text-base font-semibold tracking-tight">
+                    {balanceMode === "safe_to_spend"
+                      ? "Доступно для трат"
+                      : balanceMode === "accounts"
+                        ? "Баланс по счетам"
+                        : "Чистый капитал"}
+                  </CardTitle>
+                </div>
+                <CardDescription>
+                  {balanceMode === "safe_to_spend"
+                    ? "Свободные средства за вычетом резервов, платежей и грейса"
+                    : balanceMode === "accounts"
+                      ? "Собственные счета и кредитный лимит раздельно"
+                      : "Все активные собственные счета за вычетом долга кредитки"}
+                </CardDescription>
               </div>
-              <CardDescription>
-                Safe-to-Spend за вычетом обязательных платежей и резервов
-              </CardDescription>
+
+              <ToggleGroup
+                type="single"
+                value={balanceMode}
+                onValueChange={(v) => {
+                  if (
+                    v === "safe_to_spend" ||
+                    v === "accounts" ||
+                    v === "total"
+                  ) {
+                    handleSwitchBalanceMode(v);
+                  }
+                }}
+                variant="outline"
+                spacing={1}
+                className="shrink-0"
+              >
+                <ToggleGroupItem
+                  value="safe_to_spend"
+                  className="min-h-8 px-2 text-[11px]"
+                >
+                  Доступно
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="accounts"
+                  className="min-h-8 px-2 text-[11px]"
+                >
+                  Счета
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="total"
+                  className="min-h-8 px-2 text-[11px]"
+                >
+                  Сумма
+                </ToggleGroupItem>
+              </ToggleGroup>
             </CardHeader>
 
             <CardContent className="flex flex-col gap-3">
-              <div className="text-3xl font-semibold tracking-tight num-tabular">
-                {formatRub(safe)}
-              </div>
+              {balanceMode === "safe_to_spend" ? (
+                <>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <div
+                      className={cn(
+                        "text-3xl font-semibold tracking-tight num-tabular",
+                        safe < 0 && "text-destructive"
+                      )}
+                    >
+                      {formatRub(safe)}
+                    </div>
+                    {nearestObl ? (
+                      <Badge variant="outline" className="text-[11px] num-tabular">
+                        {nearestObl.title} · {formatDateShortRu(nearestObl.next_due_date)}
+                      </Badge>
+                    ) : null}
+                  </div>
 
-              <div className="grid grid-cols-2 gap-2.5 rounded-xl bg-muted/55 p-3 text-xs">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-muted-foreground">Общий баланс</span>
-                  <span className="text-sm font-medium num-tabular">
+                  <div className="grid grid-cols-2 gap-2.5 rounded-xl bg-muted/55 p-3 text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-muted-foreground">
+                        Платежи (30 дн.)
+                      </span>
+                      <span className="text-sm font-medium num-tabular">
+                        − {formatRub(upcomingOblTotal)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-muted-foreground">
+                        Жду компенсаций
+                      </span>
+                      <span className="text-sm font-medium num-tabular">
+                        {formatRub(reimb)}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {balanceMode === "accounts" ? (
+                <div className="flex flex-col divide-y divide-border/60 rounded-xl border border-border/80 bg-background/50">
+                  {financeAccounts.slice(0, 4).map((acc) => {
+                    const isCredit = acc.account_type === "credit_card";
+                    const availCredit = Math.max(
+                      0,
+                      Number(acc.credit_limit ?? 0) -
+                        Number(acc.statement_debt ?? 0)
+                    );
+                    return (
+                      <div
+                        key={acc.id}
+                        className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                      >
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate font-medium text-foreground">
+                            {acc.name}
+                          </span>
+                          {isCredit ? (
+                            <span className="text-[11px] text-muted-foreground num-tabular">
+                              Долг грейса: {formatRub(acc.statement_debt)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <span className="shrink-0 text-sm font-semibold num-tabular">
+                          {isCredit
+                            ? formatRub(availCredit)
+                            : formatRub(acc.balance)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {balanceMode === "total" ? (
+                <>
+                  <div className="text-3xl font-semibold tracking-tight num-tabular">
                     {formatRub(total)}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-muted-foreground">Жду компенсаций</span>
-                  <span className="text-sm font-medium num-tabular">
-                    {formatRub(reimb)}
-                  </span>
-                </div>
-              </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 rounded-xl bg-muted/55 p-3 text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-muted-foreground">Safe-to-Spend</span>
+                      <span className="text-sm font-medium num-tabular">
+                        {formatRub(safe)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-muted-foreground">Жду компенсаций</span>
+                      <span className="text-sm font-medium num-tabular">
+                        {formatRub(reimb)}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : null}
             </CardContent>
 
-            <CardFooter className="justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground">
-              <span>Траты голосом — через Telegram</span>
+            <CardFooter className="flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+              <Button
+                type="button"
+                size="xs"
+                variant="secondary"
+                onClick={() => setFinanceTxOpen(true)}
+                className="min-h-8 rounded-lg"
+              >
+                <PlusIcon data-icon="inline-start" />
+                Операция
+              </Button>
               <Link
                 href="/finance"
-                className="font-medium text-foreground hover:text-primary"
+                className="shrink-0 font-medium text-foreground hover:text-primary"
               >
-                Подробнее
+                Открыть финансы
               </Link>
             </CardFooter>
           </Card>
@@ -1321,6 +1492,16 @@ export function DashboardView({
             void loadTimelineDate(timelineDate);
           }
         }}
+      />
+
+      {/* Quick Finance Transaction Modal from Home Safe-to-Spend Widget */}
+      <TransactionFormModal
+        open={financeTxOpen}
+        onOpenChange={setFinanceTxOpen}
+        transaction={null}
+        accounts={financeAccounts}
+        categories={financeCategories}
+        defaultKind="expense"
       />
     </div>
   );

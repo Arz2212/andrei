@@ -6,6 +6,7 @@ export type TypedSupabaseClient = SupabaseClient<Database>;
 
 export type UserProfile = Tables<"user_profiles">;
 export type UserProfileUpdate = TablesUpdate<"user_profiles">;
+export type BalanceViewMode = "total" | "accounts" | "safe_to_spend";
 
 export type DashboardWidget = Tables<"dashboard_widgets">;
 export type DashboardWidgetInsert = TablesInsert<"dashboard_widgets">;
@@ -79,7 +80,10 @@ export type ReminderEntityType =
   | "waiting_followup"
   | "standalone_reminder"
   | "morning_digest"
-  | "evening_review";
+  | "evening_review"
+  | "finance_obligation"
+  | "credit_grace"
+  | "debt_due";
 export type ReminderStatus = "pending" | "sent" | "cancelled" | "failed";
 
 export type DayPlan = Tables<"day_plans">;
@@ -122,12 +126,79 @@ export type PendingActionKind =
   | "log_workout"
   | "update_shopping_list";
 
+// ============================================================================
+// Stage 2 — Finance Types
+// ============================================================================
+
 export type FinanceAccount = Tables<"finance_accounts">;
+export type FinanceAccountInsert = TablesInsert<"finance_accounts">;
+export type FinanceAccountUpdate = TablesUpdate<"finance_accounts">;
+export type FinanceAccountType = "debit" | "cash" | "savings" | "credit_card" | "investment";
+
 export type FinanceCategory = Tables<"finance_categories">;
+export type FinanceCategoryInsert = TablesInsert<"finance_categories">;
+export type FinanceCategoryUpdate = TablesUpdate<"finance_categories">;
+export type FinanceCategoryKind = "expense" | "income";
+
 export type FinanceTransaction = Tables<"finance_transactions">;
+export type FinanceTransactionInsert = TablesInsert<"finance_transactions">;
+export type FinanceTransactionUpdate = TablesUpdate<"finance_transactions">;
+export type FinanceTransactionKind = "expense" | "income" | "transfer" | "reimbursement_in";
+export type SpendNature = "personal" | "work_reimbursable" | "shared_reimbursable";
+export type ReimbursementStatus = "not_applicable" | "pending" | "partial" | "settled";
+export type FinanceTransactionSource =
+  | "web"
+  | "telegram_voice"
+  | "telegram_text"
+  | "telegram_photo"
+  | "mcp"
+  | "openclaw";
+
 export type FinanceObligation = Tables<"finance_obligations">;
+export type FinanceObligationInsert = TablesInsert<"finance_obligations">;
+export type FinanceObligationUpdate = TablesUpdate<"finance_obligations">;
+export type FinanceObligationKind = "mandatory_bill" | "subscription" | "loan_installment";
+export type BillingPeriod = "weekly" | "monthly" | "quarterly" | "yearly";
+
 export type FinanceDebt = Tables<"finance_debts">;
+export type FinanceDebtInsert = TablesInsert<"finance_debts">;
+export type FinanceDebtUpdate = TablesUpdate<"finance_debts">;
+export type DebtDirection = "i_owe" | "owed_to_me";
+export type DebtStatus = "open" | "closed";
+
 export type FinanceBalanceSummary = Database["public"]["Views"]["v_finance_balance_summary"]["Row"];
+
+export interface FuzzyFinanceMatch<T> {
+  item: T;
+  score: number;
+}
+
+export interface FinanceCategoryAnalyticsItem {
+  category_id: number | null;
+  category_name: string;
+  icon_name: string;
+  color_token: string;
+  personal_spent: number;
+  gross_spent: number;
+  reimbursable_spent: number;
+  monthly_limit: number | null;
+  limit_usage_percent: number | null;
+  transactions_count: number;
+}
+
+export interface FinanceMonthlyAnalytics {
+  month: string; // YYYY-MM
+  startDate: string;
+  endDate: string;
+  personal_expense_total: number;
+  work_reimbursable_outlay_total: number;
+  shared_reimbursable_outlay_total: number;
+  gross_outflow_total: number;
+  income_total: number;
+  reimbursements_received_total: number;
+  net_personal_cashflow: number;
+  by_category: FinanceCategoryAnalyticsItem[];
+}
 
 export type WorkoutProgram = Tables<"workout_programs">;
 export type WorkoutSession = Tables<"workout_sessions">;

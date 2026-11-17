@@ -9,10 +9,14 @@ import {
   HeartPulseIcon,
   Loader2Icon,
   SparklesIcon,
+  WalletIcon,
 } from "lucide-react";
 import {
   DEFAULT_REMINDER_LEAD_MINUTES,
   type DaySlot,
+  type FinanceAccount,
+  type FinanceCategory,
+  type SpendNature,
 } from "@life-os/db";
 import {
   checkTaskConflictAction,
@@ -21,6 +25,7 @@ import {
   saveTaskAction,
   type ConflictPreviewItem,
 } from "@/app/actions";
+import { saveFinanceTransactionAction } from "@/app/finance-actions";
 import {
   Drawer,
   DrawerContent,
@@ -35,19 +40,33 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface QuickCaptureDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   todayDate: string;
+  financeAccounts?: FinanceAccount[];
+  financeCategories?: FinanceCategory[];
 }
 
 export function QuickCaptureDrawer({
   open,
   onOpenChange,
   todayDate,
+  financeAccounts = [],
+  financeCategories = [],
 }: QuickCaptureDrawerProps) {
-  const [mode, setMode] = React.useState<"task" | "state" | "rule">("task");
+  const [mode, setMode] = React.useState<"task" | "finance" | "state" | "rule">(
+    "task"
+  );
   const [pending, startTransition] = React.useTransition();
 
   // Task state
@@ -60,9 +79,17 @@ export function QuickCaptureDrawer({
   const [isToday, setIsToday] = React.useState<"scheduled" | "inbox">("scheduled");
   const [conflicts, setConflicts] = React.useState<ConflictPreviewItem[]>([]);
 
+  // Finance quick capture state
+  const [txKind, setTxKind] = React.useState<"expense" | "income">("expense");
+  const [txAmount, setTxAmount] = React.useState("");
+  const [txAccountId, setTxAccountId] = React.useState("");
+  const [txCategoryId, setTxCategoryId] = React.useState("none");
+  const [txDescription, setTxDescription] = React.useState("");
+  const [txNature, setTxNature] = React.useState<SpendNature>("personal");
+
   // Pulse state
-  const [energy, setEnergy] = React.useState("4");
-  const [mood, setMood] = React.useState("4");
+  const [energy, setEnergy] = React.useState("7");
+  const [mood, setMood] = React.useState("7");
   const [stateNote, setStateNote] = React.useState("");
 
   // Rule state
@@ -72,11 +99,23 @@ export function QuickCaptureDrawer({
     if (open) {
       setPlannedDate(todayDate);
       setConflicts([]);
+      const defaultAcc =
+        financeAccounts.find((a) => a.account_type === "debit") ??
+        financeAccounts[0];
+      if (defaultAcc && !txAccountId) {
+        setTxAccountId(String(defaultAcc.id));
+      }
     }
-  }, [open, todayDate]);
+  }, [open, todayDate, financeAccounts, txAccountId]);
 
   React.useEffect(() => {
-    if (!open || mode !== "task" || isToday !== "scheduled" || !scheduledTime || !plannedDate) {
+    if (
+      !open ||
+      mode !== "task" ||
+      isToday !== "scheduled" ||
+      !scheduledTime ||
+      !plannedDate
+    ) {
       setConflicts([]);
       return;
     }
@@ -100,6 +139,14 @@ export function QuickCaptureDrawer({
       clearTimeout(timer);
     };
   }, [open, mode, isToday, plannedDate, scheduledTime, minutes, isMeeting]);
+
+  const filteredFinanceCategories = React.useMemo(
+    () =>
+      financeCategories.filter(
+        (c) => c.kind === txKind && !c.is_archived
+      ),
+    [financeCategories, txKind]
+  );
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -126,10 +173,33 @@ export function QuickCaptureDrawer({
           setScheduledTime("");
           setIsMeeting(false);
           toast.success("Задача добавлена");
+        } else if (mode === "finance") {
+          const parsedAmount = Number(txAmount.replace(",", "."));
+          if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+            toast.error("Укажи сумму больше нуля");
+            return;
+          }
+          await saveFinanceTransactionAction({
+            kind: txKind,
+            amount: parsedAmount,
+            account_id: txAccountId ? Number(txAccountId) : null,
+            category_id:
+              txCategoryId && txCategoryId !== "none"
+                ? Number(txCategoryId)
+                : null,
+            description: txDescription.trim() || null,
+            spend_nature: txKind === "expense" ? txNature : "personal",
+          });
+          setTxAmount("");
+          setTxDescription("");
+          setTxNature("personal");
+          toast.success(
+            txKind === "expense" ? "Расход записан" : "Доход записан"
+          );
         } else if (mode === "state") {
           await createStateCheckinAction({
-            energy_score: Number(energy) || 4,
-            mood_score: Number(mood) || 4,
+            energy_score: Number(energy) || 7,
+            mood_score: Number(mood) || 7,
             note: stateNote,
           });
           setStateNote("");
@@ -152,7 +222,7 @@ export function QuickCaptureDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="mx-auto max-h-[90dvh] w-full max-w-lg rounded-t-2xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <DrawerContent className="mx-auto max-h-[92dvh] w-full max-w-lg rounded-t-2xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <DrawerHeader className="px-0 text-left">
           <DrawerTitle className="text-lg font-semibold tracking-tight">
             Быстрая запись
@@ -167,23 +237,37 @@ export function QuickCaptureDrawer({
             type="single"
             value={mode}
             onValueChange={(v) => {
-              if (v === "task" || v === "state" || v === "rule") setMode(v);
+              if (
+                v === "task" ||
+                v === "finance" ||
+                v === "state" ||
+                v === "rule"
+              ) {
+                setMode(v);
+              }
             }}
             variant="outline"
-            spacing={2}
-            className="w-full"
+            spacing={1}
+            className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-4"
           >
-            <ToggleGroupItem value="task" className="min-h-11 flex-1 rounded-xl">
+            <ToggleGroupItem value="task" className="min-h-11 w-full rounded-xl">
               <CheckCircle2Icon data-icon="inline-start" />
               Задача
             </ToggleGroupItem>
-            <ToggleGroupItem value="state" className="min-h-11 flex-1 rounded-xl">
+            <ToggleGroupItem
+              value="finance"
+              className="min-h-11 w-full rounded-xl"
+            >
+              <WalletIcon data-icon="inline-start" />
+              Деньги
+            </ToggleGroupItem>
+            <ToggleGroupItem value="state" className="min-h-11 w-full rounded-xl">
               <HeartPulseIcon data-icon="inline-start" />
               Пульс
             </ToggleGroupItem>
-            <ToggleGroupItem value="rule" className="min-h-11 flex-1 rounded-xl">
+            <ToggleGroupItem value="rule" className="min-h-11 w-full rounded-xl">
               <SparklesIcon data-icon="inline-start" />
-              Правило ИИ
+              Правило
             </ToggleGroupItem>
           </ToggleGroup>
 
@@ -326,6 +410,140 @@ export function QuickCaptureDrawer({
                       </Alert>
                     ) : null}
                   </>
+                ) : null}
+              </FieldGroup>
+            ) : null}
+
+            {mode === "finance" ? (
+              <FieldGroup className="gap-3.5">
+                <ToggleGroup
+                  type="single"
+                  value={txKind}
+                  onValueChange={(v) => {
+                    if (v === "expense" || v === "income") {
+                      setTxKind(v);
+                      setTxCategoryId("none");
+                    }
+                  }}
+                  variant="outline"
+                  spacing={1}
+                  className="grid w-full grid-cols-2 gap-1.5"
+                >
+                  <ToggleGroupItem value="expense" className="min-h-11 rounded-xl">
+                    Расход
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="income" className="min-h-11 rounded-xl">
+                    Доход
+                  </ToggleGroupItem>
+                </ToggleGroup>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field>
+                    <FieldLabel htmlFor="qc-tx-amount">Сумма (₽)</FieldLabel>
+                    <Input
+                      id="qc-tx-amount"
+                      type="number"
+                      inputMode="decimal"
+                      min={1}
+                      step="any"
+                      placeholder="1450"
+                      value={txAmount}
+                      onChange={(e) => setTxAmount(e.target.value)}
+                      required
+                      className="min-h-11 text-base font-medium num-tabular"
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel>Счёт</FieldLabel>
+                    <Select value={txAccountId} onValueChange={setTxAccountId}>
+                      <SelectTrigger className="min-h-11 w-full">
+                        <SelectValue placeholder="Основной счёт" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {financeAccounts.map((a) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              {a.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field>
+                    <FieldLabel>Категория</FieldLabel>
+                    <Select value={txCategoryId} onValueChange={setTxCategoryId}>
+                      <SelectTrigger className="min-h-11 w-full">
+                        <SelectValue placeholder="Без категории" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">Без категории</SelectItem>
+                          {filteredFinanceCategories.map((c) => (
+                            <SelectItem key={c.id} value={String(c.id)}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="qc-tx-desc">На что / от кого</FieldLabel>
+                    <Input
+                      id="qc-tx-desc"
+                      placeholder="Например: Кофе и обед"
+                      value={txDescription}
+                      onChange={(e) => setTxDescription(e.target.value)}
+                      className="min-h-11"
+                    />
+                  </Field>
+                </div>
+
+                {txKind === "expense" ? (
+                  <Field>
+                    <FieldLabel>Чья трата (для чистой аналитики)</FieldLabel>
+                    <ToggleGroup
+                      type="single"
+                      value={txNature}
+                      onValueChange={(v) => {
+                        if (
+                          v === "personal" ||
+                          v === "work_reimbursable" ||
+                          v === "shared_reimbursable"
+                        ) {
+                          setTxNature(v);
+                        }
+                      }}
+                      variant="outline"
+                      spacing={1}
+                      className="grid w-full grid-cols-3 gap-1"
+                    >
+                      <ToggleGroupItem
+                        value="personal"
+                        className="min-h-10 px-2 text-xs"
+                      >
+                        Личная
+                      </ToggleGroupItem>
+                      <ToggleGroupItem
+                        value="work_reimbursable"
+                        className="min-h-10 px-2 text-xs"
+                      >
+                        Рабочая
+                      </ToggleGroupItem>
+                      <ToggleGroupItem
+                        value="shared_reimbursable"
+                        className="min-h-10 px-2 text-xs"
+                      >
+                        Пополам
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </Field>
                 ) : null}
               </FieldGroup>
             ) : null}

@@ -1,4 +1,5 @@
 import {
+  addDaysToIsoDate,
   escapeTelegramHtml,
   extractLocalTimeParts,
   formatTaskTimeRange,
@@ -7,6 +8,9 @@ import {
   getOwnerProfile,
   getTodayOverview,
   hasDigestBeenSentForDate,
+  listFinanceAccounts,
+  listFinanceDebts,
+  listFinanceObligations,
   recordDigestSentForDate,
   resolveDefaultTelegramChatId,
   type AssistantSettings,
@@ -54,13 +58,37 @@ function formatDurationCompact(minutes: number): string {
   return `${m} мин`;
 }
 
+function formatMoneyAmount(amount: number | string | null | undefined, currency = "RUB"): string {
+  const num = Number(amount ?? 0);
+  const formatted = new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: Number.isInteger(num) ? 0 : 2,
+  }).format(num);
+  const symbol =
+    currency === "RUB" ? "₽" : currency === "USD" ? "$" : currency === "EUR" ? "€" : currency;
+  return `${formatted} ${symbol}`;
+}
+
+function formatRelativeDueLabel(dueDate: string, todayDate: string, tomorrowDate: string): string {
+  if (dueDate < todayDate) return "просрочено";
+  if (dueDate === todayDate) return "сегодня";
+  if (dueDate === tomorrowDate) return "завтра";
+  return dueDate;
+}
+
 export async function buildMorningDigestHtml(
   db: TypedSupabaseClient,
   todayDate: string,
   timeZone: string,
   appUrl: string
 ): Promise<string> {
-  const overview = await getTodayOverview(db, todayDate);
+  const tomorrowDate = addDaysToIsoDate(todayDate, 1);
+  const [overview, obligations, accounts, openDebts] = await Promise.all([
+    getTodayOverview(db, todayDate),
+    listFinanceObligations(db, false),
+    listFinanceAccounts(db, false),
+    listFinanceDebts(db, "open"),
+  ]);
+
   const activeTasks = overview.todayTasks.filter(
     (t) => t.status !== "done" && t.status !== "cancelled"
   );
@@ -86,6 +114,15 @@ export async function buildMorningDigestHtml(
     `⏱ В плане: <b>${formatDurationCompact(totalPlannedMins)}</b> · защитный резерв <b>${formatDurationCompact(bufferMins)}</b>`
   );
 
+  if (overview.financeSummary && overview.financeSummary.safe_to_spend !== null) {
+    const baseCurrency = overview.profile?.base_currency || "RUB";
+    lines.push(
+      `💳 Доступно для трат: <b>${escapeTelegramHtml(
+        formatMoneyAmount(overview.financeSummary.safe_to_spend, baseCurrency)
+      )}</b>`
+    );
+  }
+
   if (timedTasks.length > 0) {
     const meetingLines = timedTasks.slice(0, 8).map((t) => {
       const range = formatTaskTimeRange(t, timeZone) ?? "ко времени";
@@ -104,7 +141,66 @@ export async function buildMorningDigestHtml(
   }
 
   if (timedTasks.length === 0 && flexibleTasks.length === 0) {
-    lines.push(`\n✨ <b>На сегодня жёстких задач пока нет</b> — можно спокойно задать главный шаг дня.`);
+    lines.push(
+      `\n✨ <b>На сегодня жёстких задач пока нет</b> — можно спокойно задать главный шаг дня.`
+    );
+  }
+
+  // Finance deadlines due today or tomorrow (mandatory bills, subscriptions, credit grace, debts)
+  const financeAlertLines: string[] = [];
+
+  for (const ob of obligations) {
+    if (ob.is_active && ob.next_due_date <= tomorrowDate) {
+      const dueTag = formatRelativeDueLabel(ob.next_due_date, todayDate, tomorrowDate);
+      const kindIcon = ob.obligation_kind === "subscription" ? "🔁" : "🧾";
+      financeAlertLines.push(
+        `• ${kindIcon} ${escapeTelegramHtml(ob.title)} (<i>${dueTag}</i>) — <code>${escapeTelegramHtml(
+          formatMoneyAmount(ob.amount, ob.currency)
+        )}</code>`
+      );
+    }
+  }
+
+  for (const acc of accounts) {
+    const debt = Number(acc.statement_debt ?? 0);
+    if (
+      acc.account_type === "credit_card" &&
+      debt > 0 &&
+      acc.grace_period_due_date &&
+      acc.grace_period_due_date <= tomorrowDate
+    ) {
+      const dueTag = formatRelativeDueLabel(acc.grace_period_due_date, todayDate, tomorrowDate);
+      financeAlertLines.push(
+        `• 💳 Грейс по карте «${escapeTelegramHtml(acc.name)}» (<i>${dueTag}</i>) — <code>${escapeTelegramHtml(
+          formatMoneyAmount(debt, acc.currency)
+        )}</code>`
+      );
+    }
+  }
+
+  for (const debtItem of openDebts) {
+    const rem = Number(debtItem.remaining_amount ?? 0);
+    if (
+      debtItem.direction === "i_owe" &&
+      rem > 0 &&
+      debtItem.due_date &&
+      debtItem.due_date <= tomorrowDate
+    ) {
+      const dueTag = formatRelativeDueLabel(debtItem.due_date, todayDate, tomorrowDate);
+      financeAlertLines.push(
+        `• 🤝 Долг «${escapeTelegramHtml(debtItem.title)}» (${escapeTelegramHtml(
+          debtItem.counterparty
+        )}, <i>${dueTag}</i>) — <code>${escapeTelegramHtml(
+          formatMoneyAmount(rem, debtItem.currency)
+        )}</code>`
+      );
+    }
+  }
+
+  if (financeAlertLines.length > 0) {
+    lines.push(
+      `\n💸 <b>Платежи и грейс (сегодня / завтра):</b>\n${financeAlertLines.slice(0, 6).join("\n")}`
+    );
   }
 
   const dueWaiting = overview.waitingTasks.filter((w) => {

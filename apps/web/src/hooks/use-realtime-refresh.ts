@@ -17,6 +17,9 @@ const WATCHED_TABLES = [
   "assistant_agreements",
   "finance_transactions",
   "finance_accounts",
+  "finance_categories",
+  "finance_obligations",
+  "finance_debts",
 ] as const;
 
 export function useRealtimeRefresh() {

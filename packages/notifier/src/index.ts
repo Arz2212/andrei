@@ -8,6 +8,7 @@ import { loadNotifierEnv } from "./env";
 import { sendTelegramPush } from "./telegram-push";
 import { NotifierWorker } from "./worker";
 
+export { loadNotifierEnv } from "./env";
 export { NotifierWorker } from "./worker";
 export { sendTelegramPush, stripHtmlToPlainText } from "./telegram-push";
 export {

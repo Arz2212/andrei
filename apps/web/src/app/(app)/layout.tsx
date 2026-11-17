@@ -3,6 +3,8 @@ import {
   formatIsoDate,
   getOwnerProfile,
   getWaitingTasks,
+  listFinanceAccounts,
+  listFinanceCategories,
   listPendingActions,
 } from "@life-os/db";
 import { requireOwnerSession } from "@/lib/supabase/server";
@@ -16,13 +18,24 @@ export default async function ProtectedAppLayout({
   children: React.ReactNode;
 }) {
   const { db } = await requireOwnerSession();
-  const [profile, waitingTasks, pendingActions] = await Promise.all([
+  const [
+    profile,
+    waitingTasks,
+    pendingActions,
+    financeAccounts,
+    financeCategories,
+  ] = await Promise.all([
     getOwnerProfile(db),
     getWaitingTasks(db),
     listPendingActions(db, ["pending", "editing"]),
+    listFinanceAccounts(db, false),
+    listFinanceCategories(db, undefined, false),
   ]);
 
-  const todayDate = formatIsoDate(new Date(), profile?.timezone ?? "Europe/Moscow");
+  const todayDate = formatIsoDate(
+    new Date(),
+    profile?.timezone ?? "Europe/Moscow"
+  );
 
   return (
     <React.Suspense fallback={null}>
@@ -31,6 +44,8 @@ export default async function ProtectedAppLayout({
         displayName={profile?.display_name ?? "Андрей"}
         waitingCount={waitingTasks.length}
         pendingActionsCount={pendingActions.length}
+        financeAccounts={financeAccounts}
+        financeCategories={financeCategories}
       >
         {children}
       </AppShell>

@@ -77,12 +77,77 @@ export const DailyReviewInputSchema = z.object({
   tomorrow_main_thing: z.string().max(1000).nullable().optional(),
 });
 
+// ============================================================================
+// Stage 2 — Finance Zod Schemas
+// ============================================================================
+
+export const BalanceViewModeSchema = z.enum(["total", "accounts", "safe_to_spend"]);
+export const FinanceAccountTypeSchema = z.enum([
+  "debit",
+  "cash",
+  "savings",
+  "credit_card",
+  "investment",
+]);
+export const FinanceTransactionKindSchema = z.enum([
+  "expense",
+  "income",
+  "transfer",
+  "reimbursement_in",
+]);
+export const SpendNatureSchema = z.enum([
+  "personal",
+  "work_reimbursable",
+  "shared_reimbursable",
+]);
+export const ReimbursementStatusSchema = z.enum([
+  "not_applicable",
+  "pending",
+  "partial",
+  "settled",
+]);
+export const FinanceTransactionSourceSchema = z.enum([
+  "web",
+  "telegram_voice",
+  "telegram_text",
+  "telegram_photo",
+  "mcp",
+  "openclaw",
+]);
+export const BillingPeriodSchema = z.enum(["weekly", "monthly", "quarterly", "yearly"]);
+export const FinanceObligationKindSchema = z.enum([
+  "mandatory_bill",
+  "subscription",
+  "loan_installment",
+]);
+export const DebtDirectionSchema = z.enum(["i_owe", "owed_to_me"]);
+
+export const CreateFinanceTransactionInputSchema = z.object({
+  account_id: z.number().int().positive(),
+  to_account_id: z.number().int().positive().nullable().optional(),
+  category_id: z.number().int().positive().nullable().optional(),
+  kind: FinanceTransactionKindSchema.default("expense"),
+  amount: z.number().positive(),
+  currency: z.string().length(3).default("RUB"),
+  occurred_at: z.string().optional(),
+  description: z.string().max(1000).nullable().optional(),
+  raw_voice_phrase: z.string().max(1000).nullable().optional(),
+  spend_nature: SpendNatureSchema.default("personal"),
+  personal_share_amount: z.number().min(0).nullable().optional(),
+  reimbursable_amount: z.number().min(0).optional(),
+  reimbursement_counterparty: z.string().max(200).nullable().optional(),
+  reimbursement_status: ReimbursementStatusSchema.optional(),
+  linked_expense_id: z.number().int().positive().nullable().optional(),
+  tags: z.array(z.string().max(60)).default([]),
+  source: FinanceTransactionSourceSchema.default("web"),
+});
+
 export const StagedExpenseItemSchema = z.object({
   amount: z.number().positive(),
   currency: z.string().length(3).default("RUB"),
   category_name: z.string().min(1),
   description: z.string().optional(),
   account_id: z.number().int().positive().optional(),
-  spend_nature: z.enum(["personal", "work_reimbursable", "shared_reimbursable"]).default("personal"),
+  spend_nature: SpendNatureSchema.default("personal"),
   reimbursable_amount: z.number().min(0).default(0),
 });

@@ -4,3 +4,4 @@ export * from "./schemas";
 export * from "./clients";
 export * from "./reminders";
 export * from "./repositories";
+export * from "./finance";

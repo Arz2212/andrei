@@ -21,6 +21,7 @@ import {
   UtensilsIcon,
   WalletIcon,
 } from "lucide-react";
+import type { FinanceAccount, FinanceCategory } from "@life-os/db";
 import { cn, formatDateLongRu } from "@/lib/utils";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { signOutAction } from "@/app/actions";
@@ -36,16 +37,29 @@ interface AppShellProps {
   displayName: string;
   waitingCount: number;
   pendingActionsCount: number;
+  financeAccounts: FinanceAccount[];
+  financeCategories: FinanceCategory[];
 }
 
 const PRIMARY_NAV = [
   { href: "/", label: "Главная", mobileLabel: "Сегодня", icon: LayoutGridIcon },
-  { href: "/tasks", label: "Задачи и слоты", mobileLabel: "Дела", icon: CheckSquareIcon },
+  {
+    href: "/tasks",
+    label: "Задачи и слоты",
+    mobileLabel: "Дела",
+    icon: CheckSquareIcon,
+  },
   {
     href: "/tasks?tab=week",
     label: "Календарь недели",
     mobileLabel: "Календарь",
     icon: CalendarRangeIcon,
+  },
+  {
+    href: "/finance",
+    label: "Финансы",
+    mobileLabel: "Деньги",
+    icon: WalletIcon,
   },
   {
     href: "/journal",
@@ -55,8 +69,10 @@ const PRIMARY_NAV = [
   },
 ] as const;
 
+const MOBILE_BOTTOM_LEFT = [PRIMARY_NAV[0], PRIMARY_NAV[1]] as const;
+const MOBILE_BOTTOM_RIGHT = [PRIMARY_NAV[3], PRIMARY_NAV[4]] as const;
+
 const MODULE_NAV = [
-  { href: "/finance", label: "Финансы", stage: "Этап 2", icon: WalletIcon },
   { href: "/health", label: "Здоровье", stage: "Этап 3", icon: HeartPulseIcon },
   { href: "/nutrition", label: "Питание", stage: "Этап 3", icon: UtensilsIcon },
   { href: "/goals", label: "Цели и привычки", stage: "Этап 4", icon: TargetIcon },
@@ -68,6 +84,8 @@ export function AppShell({
   displayName,
   waitingCount,
   pendingActionsCount,
+  financeAccounts,
+  financeCategories,
 }: AppShellProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -98,6 +116,7 @@ export function AppShell({
     return pathname === href || pathname.startsWith(`${href}/`);
   }
 
+  const isWeekCalendarActive = pathname === "/tasks" && currentTab === "week";
   const isSettingsActive =
     pathname === "/settings" || pathname.startsWith("/settings/");
 
@@ -222,7 +241,7 @@ export function AppShell({
 
           {!collapsed ? (
             <span className="px-3 pb-1 text-xs font-medium text-muted-foreground">
-              Разделы системы
+              Следующие этапы
             </span>
           ) : null}
 
@@ -370,7 +389,7 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top Header */}
         <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-md safe-top">
-          <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-3 px-4 lg:h-16 lg:px-8">
+          <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-2 px-4 lg:h-16 lg:px-8">
             <div className="flex min-w-0 items-center gap-2.5">
               <Link href="/" className="lg:hidden">
                 <BrandLogo size="sm" />
@@ -391,7 +410,18 @@ export function AppShell({
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                asChild
+                variant={isWeekCalendarActive ? "secondary" : "ghost"}
+                size="icon"
+                className="size-11 rounded-xl lg:hidden"
+              >
+                <Link href="/tasks?tab=week" aria-label="Календарь недели">
+                  <CalendarRangeIcon />
+                </Link>
+              </Button>
+
               <Button
                 type="button"
                 variant="ghost"
@@ -445,7 +475,7 @@ export function AppShell({
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/90 backdrop-blur-xl lg:hidden pb-[env(safe-area-inset-bottom,0px)]"
       >
         <div className="mx-auto grid max-w-md grid-cols-5 items-center px-2 py-1.5">
-          {PRIMARY_NAV.slice(0, 2).map((item) => {
+          {MOBILE_BOTTOM_LEFT.map((item) => {
             const Icon = item.icon;
             const active = isPrimaryActive(item.href);
             return (
@@ -474,7 +504,7 @@ export function AppShell({
             </Button>
           </div>
 
-          {PRIMARY_NAV.slice(2).map((item) => {
+          {MOBILE_BOTTOM_RIGHT.map((item) => {
             const Icon = item.icon;
             const active = isPrimaryActive(item.href);
             return (
@@ -498,6 +528,8 @@ export function AppShell({
         open={quickOpen}
         onOpenChange={setQuickOpen}
         todayDate={todayDate}
+        financeAccounts={financeAccounts}
+        financeCategories={financeCategories}
       />
     </div>
   );

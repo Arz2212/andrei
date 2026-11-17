@@ -1,12 +1,28 @@
-import { formatIsoDate, getOwnerProfile, getTodayOverview } from "@life-os/db";
+import {
+  formatIsoDate,
+  getOwnerProfile,
+  getTodayOverview,
+  listFinanceAccounts,
+  listFinanceCategories,
+  listFinanceObligations,
+} from "@life-os/db";
 import { requireOwnerSession } from "@/lib/supabase/server";
 import { DashboardView } from "@/components/modules/dashboard-view";
 
 export default async function HomePage() {
   const { db } = await requireOwnerSession();
   const profile = await getOwnerProfile(db);
-  const todayDate = formatIsoDate(new Date(), profile?.timezone ?? "Europe/Moscow");
-  const overview = await getTodayOverview(db, todayDate);
+  const todayDate = formatIsoDate(
+    new Date(),
+    profile?.timezone ?? "Europe/Moscow"
+  );
+  const [overview, financeAccounts, financeCategories, financeObligations] =
+    await Promise.all([
+      getTodayOverview(db, todayDate),
+      listFinanceAccounts(db, false),
+      listFinanceCategories(db, undefined, false),
+      listFinanceObligations(db, false),
+    ]);
 
   return (
     <DashboardView
@@ -20,6 +36,9 @@ export default async function HomePage() {
       latestCheckin={overview.latestCheckin}
       pendingActions={overview.pendingActions}
       financeSummary={overview.financeSummary}
+      financeAccounts={financeAccounts}
+      financeCategories={financeCategories}
+      financeObligations={financeObligations}
     />
   );
 }

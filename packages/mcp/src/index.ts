@@ -12,18 +12,20 @@ import { getAssistantFullContext, getOwnerBotDbClient } from "@life-os/db";
 import { loadEnvSilently } from "./helpers";
 import { registerOverviewAndTaskTools } from "./tools/tasks";
 import { registerJournalAndStateTools } from "./tools/journal";
-import { registerStage2To4DomainTools } from "./tools/roadmap-domains";
+import { registerFinanceTools } from "./tools/finance";
+import { registerStage3To4DomainTools } from "./tools/roadmap-domains";
 
 loadEnvSilently();
 
 const server = new McpServer({
   name: "life-os",
-  version: "1.0.0",
+  version: "1.2.0",
 });
 
 registerOverviewAndTaskTools(server);
 registerJournalAndStateTools(server);
-registerStage2To4DomainTools(server);
+registerFinanceTools(server);
+registerStage3To4DomainTools(server);
 
 // Expose live assistant persona & agreements as an MCP prompt as well
 server.registerPrompt(
