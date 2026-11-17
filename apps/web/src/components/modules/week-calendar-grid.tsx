@@ -20,9 +20,10 @@ import {
 import { cn, formatDateShortRu } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { computePositionedBlocks } from "@/components/modules/day-timeline";
 
-const HOUR_HEIGHT_PX = 50;
+const HOUR_HEIGHT_PX = 86;
 const SHORT_WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
 
 const SPHERE_CARD_STYLES: Record<string, string> = {
@@ -36,6 +37,12 @@ const SPHERE_CARD_STYLES: Record<string, string> = {
     "border-l-3 border-l-domain-nutrition bg-domain-nutrition/16 hover:bg-domain-nutrition/24",
   default: "border-l-3 border-l-primary bg-accent/70 hover:bg-accent/95",
 };
+
+function getWeekdayShortRu(isoDate: string): string {
+  const dt = new Date(`${isoDate}T12:00:00Z`);
+  const jsDay = dt.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
+  return SHORT_WEEKDAYS_RU[(jsDay + 6) % 7];
+}
 
 interface WeekCalendarGridProps {
   todayDate: string;
@@ -61,10 +68,22 @@ export function WeekCalendarGrid({
   onEditTask,
   onCreateAtCell,
 }: WeekCalendarGridProps) {
+  const [daysMode, setDaysMode] = React.useState<"7" | "3">("7");
+  const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const verticalGridRef = React.useRef<HTMLDivElement | null>(null);
+
   const weekBounds = React.useMemo(
     () => getWeekBoundsIso(anchorDate),
     [anchorDate]
   );
+
+  // Visible dates: all 7 days of the week, or a focused 3-day slice inside the week
+  const visibleDates = React.useMemo(() => {
+    if (daysMode === "7") return weekBounds.dates;
+    const idx = weekBounds.dates.indexOf(anchorDate);
+    const baseIdx = idx >= 0 ? Math.min(4, Math.max(0, idx)) : 0;
+    return weekBounds.dates.slice(baseIdx, baseIdx + 3);
+  }, [daysMode, weekBounds.dates, anchorDate]);
 
   const projectMap = React.useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -119,22 +138,59 @@ export function WeekCalendarGrid({
     [startHour, endHour]
   );
 
+  // Gently center horizontal scroll on today if today is later in the week (Wed..Sun) on mobile
+  React.useEffect(() => {
+    if (daysMode !== "7" || !scrollContainerRef.current) return;
+    const todayIdx = weekBounds.dates.indexOf(todayDate);
+    if (todayIdx >= 2 && scrollContainerRef.current.clientWidth < 768) {
+      scrollContainerRef.current.scrollLeft = Math.max(0, (todayIdx - 0.35) * 164);
+    }
+  }, [daysMode, todayDate, weekBounds.dates]);
+
+  // Scroll vertical grid so the earliest timed event of the week (or 09:00) is comfortably visible
+  React.useEffect(() => {
+    if (!verticalGridRef.current) return;
+    let earliestMin = 9 * 60;
+    let found = false;
+    for (const d of visibleDates) {
+      const bList = computePositionedBlocks(tasksByDate.get(d)?.timed ?? []);
+      for (const b of bList) {
+        if (!found || b.startMin < earliestMin) {
+          earliestMin = b.startMin;
+          found = true;
+        }
+      }
+    }
+    const targetHour = Math.max(startHour, Math.floor(earliestMin / 60) - 1);
+    verticalGridRef.current.scrollTop = (targetHour - startHour) * HOUR_HEIGHT_PX;
+  }, [visibleDates, tasksByDate, startHour]);
+
   const isCurrentWeek = weekBounds.dates.includes(todayDate);
+  const stepDays = daysMode === "3" ? 3 : 7;
+
+  const gridColsClass =
+    daysMode === "3"
+      ? "grid-cols-[44px_repeat(3,minmax(160px,1fr))]"
+      : "grid-cols-[44px_repeat(7,minmax(164px,1fr))]";
+
+  const minWidthClass = daysMode === "3" ? "min-w-[524px]" : "min-w-[1192px]";
 
   return (
     <div className="flex flex-col gap-3.5">
       {/* Week Navigation Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/80 bg-card px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-border/80 bg-card px-3.5 py-2.5 sm:px-4 sm:py-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => onChangeAnchorDate(addDaysToIsoDate(anchorDate, -7))}
-            className="min-h-9 rounded-xl"
+            onClick={() =>
+              onChangeAnchorDate(addDaysToIsoDate(anchorDate, -stepDays))
+            }
+            className="min-h-9 rounded-xl px-2.5"
           >
             <ChevronLeftIcon data-icon="inline-start" />
-            Пред. неделя
+            {daysMode === "3" ? "Назад" : "Пред."}
           </Button>
 
           <Button
@@ -142,7 +198,7 @@ export function WeekCalendarGrid({
             variant={isCurrentWeek ? "secondary" : "outline"}
             size="sm"
             onClick={() => onChangeAnchorDate(todayDate)}
-            className="min-h-9 rounded-xl"
+            className="min-h-9 rounded-xl px-3"
           >
             Сегодня
           </Button>
@@ -151,36 +207,64 @@ export function WeekCalendarGrid({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => onChangeAnchorDate(addDaysToIsoDate(anchorDate, 7))}
-            className="min-h-9 rounded-xl"
+            onClick={() =>
+              onChangeAnchorDate(addDaysToIsoDate(anchorDate, stepDays))
+            }
+            className="min-h-9 rounded-xl px-2.5"
           >
-            След. неделя
+            {daysMode === "3" ? "Вперёд" : "След."}
             <ChevronRightIcon data-icon="inline-end" />
           </Button>
 
           {loading ? (
-            <Loader2Icon className="ml-1.5 size-4 animate-spin text-muted-foreground" />
+            <Loader2Icon className="ml-1 size-4 animate-spin text-muted-foreground" />
           ) : null}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <ToggleGroup
+            type="single"
+            value={daysMode}
+            onValueChange={(v) => {
+              if (v === "3" || v === "7") setDaysMode(v);
+            }}
+            variant="outline"
+            spacing={1}
+            className="md:hidden"
+          >
+            <ToggleGroupItem value="3" className="min-h-8 px-2.5 text-xs num-tabular">
+              3 дня
+            </ToggleGroupItem>
+            <ToggleGroupItem value="7" className="min-h-8 px-2.5 text-xs num-tabular">
+              7 дней
+            </ToggleGroupItem>
+          </ToggleGroup>
+
           <span className="text-sm font-semibold num-tabular">
-            {formatDateShortRu(weekBounds.weekStart)} —{" "}
-            {formatDateShortRu(weekBounds.weekEnd)}{" "}
-            {weekBounds.weekEnd.slice(0, 4)}
+            {formatDateShortRu(visibleDates[0])} —{" "}
+            {formatDateShortRu(visibleDates[visibleDates.length - 1])}{" "}
+            {visibleDates[visibleDates.length - 1].slice(0, 4)}
           </span>
         </div>
       </div>
 
-      {/* 7-Day Time-Block Calendar Grid (horizontally scrollable on narrow screens) */}
-      <div className="overflow-x-auto rounded-2xl border border-border/80 bg-card">
-        <div className="min-w-[880px]">
+      {/* Time-Block Calendar Grid (horizontally scrollable container) */}
+      <div
+        ref={scrollContainerRef}
+        className="overflow-x-auto rounded-2xl border border-border/80 bg-card touch-pan-x"
+      >
+        <div className={minWidthClass}>
           {/* Day Headers Row */}
-          <div className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))] border-b border-border/80 bg-muted/35">
-            <div className="flex items-center justify-center border-r border-border/60 p-2 text-[11px] font-medium text-muted-foreground">
+          <div
+            className={cn(
+              "grid border-b border-border/80 bg-muted/35",
+              gridColsClass
+            )}
+          >
+            <div className="flex items-center justify-center border-r border-border/60 px-1 py-2 text-[10px] font-medium text-muted-foreground">
               МСК
             </div>
-            {weekBounds.dates.map((isoDate, idx) => {
+            {visibleDates.map((isoDate) => {
               const isToday = isoDate === todayDate;
               const dayNum = Number(isoDate.slice(8, 10));
               const monthNum = isoDate.slice(5, 7);
@@ -199,7 +283,7 @@ export function WeekCalendarGrid({
                         isToday ? "text-primary" : "text-foreground"
                       )}
                     >
-                      {SHORT_WEEKDAYS_RU[idx]}
+                      {getWeekdayShortRu(isoDate)}
                     </span>
                     <span className="text-xs text-muted-foreground num-tabular">
                       {dayNum}.{monthNum}
@@ -218,12 +302,17 @@ export function WeekCalendarGrid({
             })}
           </div>
 
-          {/* All-Day / Flexible Slot Strip (tasks without an exact hour) */}
-          <div className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))] border-b border-border/80 bg-background/40">
-            <div className="flex items-center justify-center border-r border-border/60 px-1 py-2 text-[10px] text-muted-foreground">
+          {/* All-Day / Flexible Slot Strip (2-line readable chips!) */}
+          <div
+            className={cn(
+              "grid border-b border-border/80 bg-background/40",
+              gridColsClass
+            )}
+          >
+            <div className="flex items-center justify-center border-r border-border/60 px-0.5 py-2 text-[9.5px] text-muted-foreground">
               Слоты
             </div>
-            {weekBounds.dates.map((isoDate) => {
+            {visibleDates.map((isoDate) => {
               const bucket = tasksByDate.get(isoDate);
               const flexItems = bucket?.flexible ?? [];
               const isToday = isoDate === todayDate;
@@ -232,7 +321,7 @@ export function WeekCalendarGrid({
                 <div
                   key={isoDate}
                   className={cn(
-                    "flex min-h-10 flex-col gap-1 border-r border-border/60 p-1.5 last:border-r-0",
+                    "flex min-h-10 flex-col gap-1.5 border-r border-border/60 p-1.5 last:border-r-0",
                     isToday && "bg-accent/20"
                   )}
                 >
@@ -249,23 +338,29 @@ export function WeekCalendarGrid({
                       <div
                         key={task.id}
                         onClick={() => onEditTask(task)}
+                        title={task.title}
                         className={cn(
-                          "flex cursor-pointer items-center gap-1.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] leading-tight transition-colors",
+                          "flex cursor-pointer items-start gap-1.5 rounded-lg border border-border/65 px-2 py-1.5 text-[11.5px] leading-[1.24] transition-colors",
                           tone,
                           isDone && "opacity-55"
                         )}
                       >
-                        <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0 pt-0.5"
+                        >
                           <Checkbox
                             checked={isDone}
-                            onCheckedChange={(v) => onToggleTask(task, Boolean(v))}
+                            onCheckedChange={(v) =>
+                              onToggleTask(task, Boolean(v))
+                            }
                             aria-label={`Выполнить «${task.title}»`}
                             className="size-3.5"
                           />
                         </div>
                         <span
                           className={cn(
-                            "truncate font-medium",
+                            "line-clamp-2 whitespace-normal break-words font-medium text-foreground",
                             isDone && "line-through text-muted-foreground"
                           )}
                         >
@@ -280,12 +375,15 @@ export function WeekCalendarGrid({
           </div>
 
           {/* Main Hourly Time-Block Grid */}
-          <div className="max-h-[620px] overflow-y-auto">
+          <div
+            ref={verticalGridRef}
+            className="max-h-[680px] overflow-y-auto"
+          >
             <div
-              className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))]"
+              className={cn("grid", gridColsClass)}
               style={{ height: `${hours.length * HOUR_HEIGHT_PX}px` }}
             >
-              {/* Left Hour Axis */}
+              {/* Left Hour Axis (Compact 44px) */}
               <div className="relative border-r border-border/60 bg-muted/20">
                 {hours.map((hr, idx) => (
                   <div
@@ -294,15 +392,15 @@ export function WeekCalendarGrid({
                       top: `${idx * HOUR_HEIGHT_PX}px`,
                       height: `${HOUR_HEIGHT_PX}px`,
                     }}
-                    className="absolute inset-x-0 border-b border-border/45 pt-1 pr-2 text-right text-[11px] text-muted-foreground num-tabular"
+                    className="absolute inset-x-0 border-b border-border/45 pt-1 pr-1.5 text-right text-[10px] text-muted-foreground num-tabular"
                   >
                     {String(hr).padStart(2, "0")}:00
                   </div>
                 ))}
               </div>
 
-              {/* 7 Day Columns */}
-              {weekBounds.dates.map((isoDate) => {
+              {/* Day Columns */}
+              {visibleDates.map((isoDate) => {
                 const bucket = tasksByDate.get(isoDate);
                 const positioned = computePositionedBlocks(bucket?.timed ?? []);
                 const isToday = isoDate === todayDate;
@@ -332,7 +430,7 @@ export function WeekCalendarGrid({
                       );
                     })}
 
-                    {/* Time-Blocked Cards */}
+                    {/* Time-Blocked Cards (Taller + 3..4 Full Lines Readable!) */}
                     {positioned.map((b) => {
                       const { task, startMin, endMin, colIndex, totalCols } = b;
                       const isDone = task.status === "done";
@@ -350,11 +448,20 @@ export function WeekCalendarGrid({
                       const topPx =
                         ((startMin - startHour * 60) / 60) * HOUR_HEIGHT_PX + 1;
                       const heightPx = Math.max(
-                        30,
+                        52,
                         ((endMin - startMin) / 60) * HOUR_HEIGHT_PX - 2
                       );
                       const widthPct = 100 / totalCols;
                       const leftPct = colIndex * widthPct;
+
+                      const lineClampClass =
+                        heightPx >= 110
+                          ? "line-clamp-5"
+                          : heightPx >= 76
+                            ? "line-clamp-4"
+                            : heightPx >= 58
+                              ? "line-clamp-3"
+                              : "line-clamp-2";
 
                       return (
                         <div
@@ -363,6 +470,7 @@ export function WeekCalendarGrid({
                             e.stopPropagation();
                             onEditTask(task);
                           }}
+                          title={task.title}
                           style={{
                             top: `${topPx}px`,
                             height: `${heightPx}px`,
@@ -370,18 +478,18 @@ export function WeekCalendarGrid({
                             width: `calc(${widthPct}% - 4px)`,
                           }}
                           className={cn(
-                            "absolute z-10 flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border/70 px-2 py-1 text-[11px] leading-snug shadow-2xs transition-colors",
+                            "absolute z-10 flex cursor-pointer flex-col gap-1 overflow-hidden rounded-xl border border-border/75 px-2 py-1.5 shadow-2xs transition-colors",
                             tone,
                             isDone && "opacity-60"
                           )}
                         >
-                          <div className="flex items-start justify-between gap-1">
-                            <span className="font-semibold text-foreground num-tabular">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[10.5px] leading-none font-semibold text-muted-foreground num-tabular">
                               {timeLabel}
                             </span>
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              className="shrink-0 pt-0.5"
+                              className="shrink-0"
                             >
                               <Checkbox
                                 checked={isDone}
@@ -393,15 +501,18 @@ export function WeekCalendarGrid({
                               />
                             </div>
                           </div>
+
                           <span
                             className={cn(
-                              "line-clamp-2 font-medium text-foreground",
+                              "whitespace-normal break-words text-[12px] leading-[1.24] font-medium text-foreground",
+                              lineClampClass,
                               isDone && "line-through text-muted-foreground"
                             )}
                           >
                             {task.title}
                           </span>
-                          {heightPx >= 58 && proj ? (
+
+                          {heightPx >= 102 && proj ? (
                             <span className="mt-auto truncate text-[10px] text-muted-foreground">
                               {proj.title}
                             </span>

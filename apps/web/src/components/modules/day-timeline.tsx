@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 
-const HOUR_HEIGHT_PX = 48;
+const HOUR_HEIGHT_PX = 68;
 
 const DOMAIN_BLOCK_STYLES: Record<string, string> = {
   work: "border-l-3 border-l-domain-work bg-domain-work/12 hover:bg-domain-work/18",
@@ -293,7 +293,7 @@ export function DayTimeline({
         </div>
       </div>
 
-      {/* Flexible Tasks Strip (tasks on this date without an exact clock hour) */}
+      {/* Flexible Tasks Strip (2-line readable chips!) */}
       {flexibleTasks.length > 0 ? (
         <div className="flex flex-col gap-1.5 rounded-xl border border-border/80 bg-muted/35 p-2.5">
           <div className="flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
@@ -306,24 +306,26 @@ export function DayTimeline({
               return (
                 <div
                   key={task.id}
-                  className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-lg border border-border/80 bg-card px-2.5 py-1 text-xs"
+                  className="inline-flex min-h-9 max-w-full items-start gap-2 rounded-lg border border-border/80 bg-card px-2.5 py-1.5 text-xs"
                 >
-                  <Checkbox
-                    checked={isDone}
-                    onCheckedChange={(v) => onToggleTask(task, Boolean(v))}
-                    aria-label={`Выполнить «${task.title}»`}
-                  />
+                  <div className="pt-0.5 shrink-0">
+                    <Checkbox
+                      checked={isDone}
+                      onCheckedChange={(v) => onToggleTask(task, Boolean(v))}
+                      aria-label={`Выполнить «${task.title}»`}
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => onEditTask(task)}
                     className={cn(
-                      "truncate font-medium text-left hover:text-primary",
+                      "line-clamp-2 whitespace-normal break-words font-medium text-left leading-snug hover:text-primary",
                       isDone && "line-through text-muted-foreground"
                     )}
                   >
                     {task.title}
                   </button>
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0">
                     {SLOT_SHORT_LABELS[(task.day_slot as DaySlot) ?? "any"]}
                   </Badge>
                 </div>
@@ -334,7 +336,7 @@ export function DayTimeline({
       ) : null}
 
       {/* Interactive Hourly Vertical Timeline */}
-      <div className="max-h-[520px] overflow-y-auto rounded-xl border border-border/80 bg-background/45">
+      <div className="max-h-[540px] overflow-y-auto rounded-xl border border-border/80 bg-background/45">
         <div
           className="relative select-none"
           style={{ height: `${hours.length * HOUR_HEIGHT_PX}px` }}
@@ -353,7 +355,7 @@ export function DayTimeline({
                 }}
                 className="group absolute inset-x-0 flex cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/35"
               >
-                <div className="flex w-14 shrink-0 items-start justify-end border-r border-border/50 pt-1.5 pr-2.5 text-[11px] text-muted-foreground num-tabular">
+                <div className="flex w-12 shrink-0 items-start justify-end border-r border-border/50 pt-1.5 pr-2 text-[10.5px] text-muted-foreground num-tabular">
                   {hh}
                 </div>
                 <div className="flex flex-1 items-center justify-end pr-3 opacity-0 transition-opacity group-hover:opacity-100">
@@ -373,7 +375,7 @@ export function DayTimeline({
                   ((nowMinuteOfDay - startHour * 60) / 60) * HOUR_HEIGHT_PX
                 }px`,
               }}
-              className="pointer-events-none absolute right-0 left-14 z-20 flex items-center"
+              className="pointer-events-none absolute right-0 left-12 z-20 flex items-center"
             >
               <span className="-ml-1.5 size-2.5 rounded-full bg-primary ring-2 ring-background" />
               <div className="h-[1.5px] flex-1 bg-primary/80" />
@@ -381,7 +383,7 @@ export function DayTimeline({
           ) : null}
 
           {/* Positioned Time-Blocked Tasks & Meetings */}
-          <div className="pointer-events-none absolute top-0 right-2 bottom-0 left-15">
+          <div className="pointer-events-none absolute top-0 right-2 bottom-0 left-13">
             {positioned.map((block) => {
               const { task, startMin, endMin, colIndex, totalCols } = block;
               const isDone = task.status === "done";
@@ -395,7 +397,7 @@ export function DayTimeline({
               const topPx =
                 ((startMin - startHour * 60) / 60) * HOUR_HEIGHT_PX + 1;
               const heightPx = Math.max(
-                28,
+                44,
                 ((endMin - startMin) / 60) * HOUR_HEIGHT_PX - 2
               );
               const widthPct = 100 / totalCols;
@@ -409,6 +411,7 @@ export function DayTimeline({
                     e.stopPropagation();
                     onEditTask(task);
                   }}
+                  title={task.title}
                   style={{
                     top: `${topPx}px`,
                     height: `${heightPx}px`,
@@ -416,7 +419,7 @@ export function DayTimeline({
                     width: `calc(${widthPct}% - 4px)`,
                   }}
                   className={cn(
-                    "pointer-events-auto absolute z-10 flex cursor-pointer items-start gap-2 overflow-hidden rounded-lg border border-border/60 px-2.5 py-1.5 text-xs transition-colors",
+                    "pointer-events-auto absolute z-10 flex cursor-pointer items-start gap-2 overflow-hidden rounded-xl border border-border/65 px-2.5 py-1.5 text-xs transition-colors",
                     blockTone,
                     isDone && "opacity-60"
                   )}
@@ -432,25 +435,23 @@ export function DayTimeline({
                     />
                   </div>
 
-                  <div className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <div className="flex items-center gap-1.5">
-                      {timeLabel ? (
-                        <span className="inline-flex shrink-0 items-center gap-0.5 font-semibold text-foreground num-tabular">
-                          <ClockIcon className="size-2.5 text-primary" />
-                          {timeLabel}
-                        </span>
-                      ) : null}
-                      <span
-                        className={cn(
-                          "truncate font-medium text-foreground",
-                          isDone && "line-through text-muted-foreground"
-                        )}
-                      >
-                        {task.title}
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 leading-snug">
+                    {timeLabel ? (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[10.5px] leading-none font-semibold text-muted-foreground num-tabular">
+                        <ClockIcon className="size-2.5 text-primary" />
+                        {timeLabel}
                       </span>
-                    </div>
-                    {heightPx >= 44 && proj ? (
-                      <span className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    ) : null}
+                    <span
+                      className={cn(
+                        "line-clamp-2 whitespace-normal break-words font-medium text-foreground",
+                        isDone && "line-through text-muted-foreground"
+                      )}
+                    >
+                      {task.title}
+                    </span>
+                    {heightPx >= 64 && proj ? (
+                      <span className="truncate text-[10.5px] text-muted-foreground">
                         {proj.title}
                       </span>
                     ) : null}
