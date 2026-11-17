@@ -251,6 +251,142 @@ export type OffProductEvaluationInsert = TablesInsert<"off_product_evaluations">
 export type CalorieLog = Tables<"calorie_logs">;
 export type CalorieLogInsert = TablesInsert<"calorie_logs">;
 export type CalorieLogUpdate = TablesUpdate<"calorie_logs">;
+export type CalorieLogSource =
+  | "web"
+  | "barcode"
+  | "photo_ai"
+  | "recipe"
+  | "mcp"
+  | "openclaw";
+export type DiaryMealSlot = "breakfast" | "lunch" | "dinner" | "snack";
+
+export type NutritionTargets = Tables<"nutrition_targets">;
+export type NutritionTargetsInsert = TablesInsert<"nutrition_targets">;
+export type NutritionTargetsUpdate = TablesUpdate<"nutrition_targets">;
+export type NutritionGoalMode = "lose" | "maintain" | "gain" | "recomp";
+export type NutritionSex = "male" | "female";
+export type NutritionConfiguredVia = "ai" | "telegram_ai" | "manual";
+
+export interface AiCalculatedTargetsResult {
+  kcal_target: number;
+  protein_target_g: number;
+  fat_target_g: number;
+  carbs_target_g: number;
+  fiber_target_g: number;
+  goal_mode: NutritionGoalMode;
+  sex: NutritionSex | null;
+  age: number | null;
+  height_cm: number | null;
+  baseline_weight_kg: number | null;
+  target_weight_kg: number | null;
+  activity_level: string | null;
+  ai_explanation: string;
+}
+
+export type FoodDictionaryItem = Tables<"food_items_dictionary">;
+export type FoodDictionaryItemInsert = TablesInsert<"food_items_dictionary">;
+export type FoodDictionaryItemUpdate = TablesUpdate<"food_items_dictionary">;
+export type FoodDictionarySource =
+  | "open_reference"
+  | "openfoodfacts"
+  | "ai_estimated"
+  | "user";
+
+export interface PortionMacros {
+  grams: number;
+  kcal: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  fiber_g: number;
+}
+
+export type BodyWeightLog = Tables<"body_weight_logs">;
+export type BodyWeightLogInsert = TablesInsert<"body_weight_logs">;
+export type BodyWeightLogUpdate = TablesUpdate<"body_weight_logs">;
+
+export interface DecodedBarcodeResult {
+  barcode: string;
+  format: string;
+}
+
+export interface ComputedRecipeMacrosSummary {
+  total_weight_g: number;
+  total_kcal: number;
+  total_protein_g: number;
+  total_fat_g: number;
+  total_carbs_g: number;
+  kcal_per_serving: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  kcal_per_100g: number;
+}
+
+export interface DayMealDiaryGroup {
+  slot: DiaryMealSlot;
+  label: string;
+  kcal: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  fiber_g: number;
+  pct_of_day: number;
+  entries: CalorieLog[];
+}
+
+export interface DayFoodDiary {
+  date: string;
+  targets: NutritionTargets;
+  totals: {
+    kcal: number;
+    protein_g: number;
+    fat_g: number;
+    carbs_g: number;
+    fiber_g: number;
+    remaining_kcal: number;
+    pct_of_target: number;
+  };
+  meals: Record<DiaryMealSlot, DayMealDiaryGroup>;
+  mealList: DayMealDiaryGroup[];
+  dayWeight: BodyWeightLog | null;
+  latestWeight: BodyWeightLog | null;
+}
+
+export interface NutritionWeightDailyPoint {
+  date: string;
+  kcal: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  kcal_target: number;
+  weight_kg: number | null;
+  weight_ma7_kg: number | null;
+}
+
+export interface NutritionAndWeightAnalytics {
+  days: number;
+  startDate: string;
+  endDate: string;
+  targets: NutritionTargets;
+  series: NutritionWeightDailyPoint[];
+  averages: {
+    avg_kcal: number;
+    avg_protein_g: number;
+    avg_fat_g: number;
+    avg_carbs_g: number;
+    logged_days_count: number;
+    target_adherence_pct: number;
+  };
+  weight_summary: {
+    start_weight_kg: number | null;
+    latest_weight_kg: number | null;
+    min_weight_kg: number | null;
+    max_weight_kg: number | null;
+    weight_delta_kg: number | null;
+    target_weight_kg: number | null;
+  };
+}
 
 export interface OffParsedProduct {
   barcode: string;
@@ -263,6 +399,7 @@ export interface OffParsedProduct {
   protein_100g: number | null;
   fat_100g: number | null;
   carbs_100g: number | null;
+  fiber_100g?: number | null;
   raw: Record<string, unknown> | null;
 }
 

@@ -4,37 +4,50 @@ import { revalidatePath } from "next/cache";
 import {
   addShoppingItem,
   adjustPantryQuantity,
+  cacheFoodDictionaryItem,
+  calculateNutritionTargetsWithAi,
   clearCheckedShoppingItems,
-  createCalorieLog,
   createMealPlanEntry,
   createRecipeWithIngredients,
+  deleteBodyWeightLog,
   deleteCalorieLog,
   deleteMealPlanEntry,
   deletePantryItem,
   deleteRecipe,
   deleteShoppingItem,
-  evaluateAndSaveOffProduct,
   generateShoppingListFromMealPlan,
+  getDayFoodDiary,
+  getNutritionAndWeightAnalytics,
   getWeekBoundsIso,
-  listCalorieLogs,
   listMealPlanEntries,
+  logFoodDiaryEntry,
+  lookupBarcodeWithAutoCache,
   markMealCookedOrEaten,
   normalizeIngredientUnit,
-  searchOpenFoodFactsProducts,
-  setCaloriesFeatureFlag,
+  searchFoodNutritionWithAutoLookup,
   toggleShoppingItemChecked,
+  updateCalorieLog,
   updateMealPlanEntry,
   updatePantryItem,
   updateRecipeWithIngredients,
+  upsertBodyWeightLog,
+  upsertNutritionTargets,
   upsertPantryItem,
-  type CalorieLog,
+  type AiCalculatedTargetsResult,
+  type CalorieLogSource,
+  type DayFoodDiary,
+  type DiaryMealSlot,
+  type FoodDictionaryItem,
   type IngredientUnit,
   type MealCategory,
   type MealPlanEntryWithRecipe,
   type MealPlanStatus,
   type MealSlot,
+  type NutritionAndWeightAnalytics,
+  type NutritionConfiguredVia,
+  type NutritionGoalMode,
+  type NutritionSex,
   type OffParsedProduct,
-  type OffProductEvaluation,
   type RecipeIngredientDraft,
 } from "@life-os/db";
 import { requireOwnerSession } from "@/lib/supabase/server";
@@ -44,39 +57,290 @@ function revalidateNutritionAndHome() {
 }
 
 // ============================================================================
-// Feature Flag & Week Loader
+// Day Diary, AI Targets & Combined Weight + КБЖУ Analytics
 // ============================================================================
 
-export async function setCaloriesFeatureFlagAction(enabled: boolean) {
+export async function fetchDayFoodDiaryAction(
+  dateStr: string
+): Promise<DayFoodDiary> {
+  const { db } = await requireOwnerSession();
+  return getDayFoodDiary(db, dateStr, "Europe/Moscow");
+}
+
+export async function calculateAiTargetsAction(params: {
+  prompt?: string | null;
+  sex?: NutritionSex | null;
+  age?: number | null;
+  heightCm?: number | null;
+  weightKg?: number | null;
+  targetWeightKg?: number | null;
+  activityLevel?: string | null;
+  goalMode?: NutritionGoalMode | null;
+}): Promise<AiCalculatedTargetsResult> {
+  await requireOwnerSession();
+  return calculateNutritionTargetsWithAi(params);
+}
+
+export async function saveNutritionTargetsAction(payload: {
+  kcal_target: number;
+  protein_target_g: number;
+  fat_target_g: number;
+  carbs_target_g: number;
+  fiber_target_g?: number | null;
+  goal_mode: NutritionGoalMode;
+  sex?: NutritionSex | null;
+  age?: number | null;
+  height_cm?: number | null;
+  baseline_weight_kg?: number | null;
+  target_weight_kg?: number | null;
+  activity_level?: string | null;
+  ai_explanation?: string | null;
+  configured_via?: NutritionConfiguredVia;
+  logBaselineWeight?: boolean;
+}) {
   const { db, userId } = await requireOwnerSession();
-  await setCaloriesFeatureFlag(db, userId, enabled);
+  const saved = await upsertNutritionTargets(db, {
+    user_id: userId,
+    markConfigured: true,
+    kcal_target: Math.round(Number(payload.kcal_target) || 2200),
+    protein_target_g: Number(payload.protein_target_g) || 150,
+    fat_target_g: Number(payload.fat_target_g) || 73,
+    carbs_target_g: Number(payload.carbs_target_g) || 235,
+    fiber_target_g:
+      payload.fiber_target_g !== null && payload.fiber_target_g !== undefined
+        ? Number(payload.fiber_target_g)
+        : 28,
+    goal_mode: payload.goal_mode,
+    sex: payload.sex ?? null,
+    age: payload.age ? Math.round(Number(payload.age)) : null,
+    height_cm: payload.height_cm ? Number(payload.height_cm) : null,
+    baseline_weight_kg: payload.baseline_weight_kg
+      ? Number(payload.baseline_weight_kg)
+      : null,
+    target_weight_kg: payload.target_weight_kg
+      ? Number(payload.target_weight_kg)
+      : null,
+    activity_level: payload.activity_level?.trim() || null,
+    ai_explanation: payload.ai_explanation?.trim() || null,
+    configured_via: payload.configured_via ?? "ai",
+  });
+
+  if (
+    payload.logBaselineWeight &&
+    payload.baseline_weight_kg &&
+    Number(payload.baseline_weight_kg) >= 25
+  ) {
+    await upsertBodyWeightLog(db, {
+      user_id: userId,
+      weight_kg: Number(payload.baseline_weight_kg),
+      note: "Стартовый вес при настройке нормы КБЖУ",
+      source: "web",
+    });
+  }
+
+  revalidateNutritionAndHome();
+  return saved;
+}
+
+// ============================================================================
+// 3-Tier Open Food Search, Barcode Lookup & Diary Logging
+// ============================================================================
+
+export async function searchFoodAutoLookupAction(
+  query: string,
+  options?: { allowRemote?: boolean; limit?: number }
+): Promise<FoodDictionaryItem[]> {
+  const { db, userId } = await requireOwnerSession();
+  const allowRemote = options?.allowRemote ?? true;
+  return searchFoodNutritionWithAutoLookup(db, userId, query, {
+    allowOff: allowRemote,
+    allowAiFallback: allowRemote,
+    limit: options?.limit ?? 10,
+  });
+}
+
+export async function lookupBarcodeFoodAction(barcode: string): Promise<{
+  item: FoodDictionaryItem | null;
+  offProduct: OffParsedProduct;
+}> {
+  const { db, userId } = await requireOwnerSession();
+  return lookupBarcodeWithAutoCache(db, userId, barcode);
+}
+
+export async function logFoodDiaryEntryAction(payload: {
+  logged_date: string;
+  meal_slot: DiaryMealSlot;
+  title?: string;
+  grams?: number | null;
+  servings?: number | null;
+  food_item_id?: number | null;
+  recipe_id?: number | null;
+  barcode?: string | null;
+  kcal?: number | null;
+  protein_g?: number | null;
+  fat_g?: number | null;
+  carbs_g?: number | null;
+  fiber_g?: number | null;
+  source?: CalorieLogSource;
+  cacheCustomBarcodeItem?: {
+    display_name: string;
+    barcode: string;
+    kcal_100g: number;
+    protein_100g: number;
+    fat_100g: number;
+    carbs_100g: number;
+  } | null;
+}) {
+  const { db, userId } = await requireOwnerSession();
+
+  let resolvedFoodItemId = payload.food_item_id ?? null;
+  if (payload.cacheCustomBarcodeItem) {
+    const cached = await cacheFoodDictionaryItem(db, userId, {
+      display_name: payload.cacheCustomBarcodeItem.display_name,
+      barcode: payload.cacheCustomBarcodeItem.barcode,
+      kcal_100g: payload.cacheCustomBarcodeItem.kcal_100g,
+      protein_100g: payload.cacheCustomBarcodeItem.protein_100g,
+      fat_100g: payload.cacheCustomBarcodeItem.fat_100g,
+      carbs_100g: payload.cacheCustomBarcodeItem.carbs_100g,
+      source: "user",
+    });
+    resolvedFoodItemId = cached.id;
+  }
+
+  const created = await logFoodDiaryEntry(db, {
+    user_id: userId,
+    logged_date: payload.logged_date,
+    meal_slot: payload.meal_slot,
+    title: payload.title,
+    grams: payload.grams,
+    servings: payload.servings,
+    food_item_id: resolvedFoodItemId,
+    recipe_id: payload.recipe_id,
+    barcode: payload.barcode,
+    kcal: payload.kcal,
+    protein_g: payload.protein_g,
+    fat_g: payload.fat_g,
+    carbs_g: payload.carbs_g,
+    fiber_g: payload.fiber_g,
+    source: payload.source ?? "web",
+  });
+  revalidateNutritionAndHome();
+  return created;
+}
+
+export async function updateFoodDiaryEntryAction(payload: {
+  id: number;
+  meal_slot?: DiaryMealSlot;
+  title?: string;
+  grams?: number | null;
+  servings?: number | null;
+  kcal?: number;
+  protein_g?: number | null;
+  fat_g?: number | null;
+  carbs_g?: number | null;
+}) {
+  const { db } = await requireOwnerSession();
+  const updated = await updateCalorieLog(db, payload.id, {
+    meal_slot: payload.meal_slot,
+    title: payload.title?.trim(),
+    grams: payload.grams,
+    servings: payload.servings,
+    kcal: payload.kcal,
+    protein_g: payload.protein_g,
+    fat_g: payload.fat_g,
+    carbs_g: payload.carbs_g,
+  });
+  revalidateNutritionAndHome();
+  return updated;
+}
+
+export async function deleteCalorieLogAction(id: number) {
+  const { db } = await requireOwnerSession();
+  await deleteCalorieLog(db, id);
   revalidateNutritionAndHome();
 }
+
+// ============================================================================
+// Body Weight Logs & Combined Analytics
+// ============================================================================
+
+export async function saveBodyWeightAction(payload: {
+  logged_date: string;
+  weight_kg: number;
+  body_fat_pct?: number | null;
+  waist_cm?: number | null;
+  note?: string | null;
+}) {
+  const { db, userId } = await requireOwnerSession();
+  const w = Number(payload.weight_kg);
+  if (!Number.isFinite(w) || w < 20 || w > 350) {
+    throw new Error("Укажи корректный вес (20–350 кг)");
+  }
+
+  await upsertBodyWeightLog(db, {
+    user_id: userId,
+    logged_date: payload.logged_date,
+    weight_kg: w,
+    body_fat_pct:
+      payload.body_fat_pct !== null &&
+      payload.body_fat_pct !== undefined &&
+      Number(payload.body_fat_pct) > 0
+        ? Number(payload.body_fat_pct)
+        : null,
+    waist_cm:
+      payload.waist_cm !== null &&
+      payload.waist_cm !== undefined &&
+      Number(payload.waist_cm) > 0
+        ? Number(payload.waist_cm)
+        : null,
+    note: payload.note?.trim() || null,
+    source: "web",
+  });
+  revalidateNutritionAndHome();
+}
+
+export async function deleteBodyWeightAction(id: number) {
+  const { db } = await requireOwnerSession();
+  await deleteBodyWeightLog(db, id);
+  revalidateNutritionAndHome();
+}
+
+export async function fetchNutritionAndWeightAnalyticsAction(
+  days: 7 | 14 | 30 | 90
+): Promise<NutritionAndWeightAnalytics> {
+  const { db } = await requireOwnerSession();
+  return getNutritionAndWeightAnalytics(db, {
+    days,
+    timeZone: "Europe/Moscow",
+  });
+}
+
+// ============================================================================
+// Week Meal Plan Fetcher
+// ============================================================================
 
 export async function fetchNutritionWeekAction(anchorDate: string): Promise<{
   weekStart: string;
   weekEnd: string;
   weekDates: string[];
   weekMealPlan: MealPlanEntryWithRecipe[];
-  calorieLogs: CalorieLog[];
 }> {
   const { db } = await requireOwnerSession();
   const { weekStart, weekEnd, dates } = getWeekBoundsIso(anchorDate);
-  const [weekMealPlan, calorieLogs] = await Promise.all([
-    listMealPlanEntries(db, { startDate: weekStart, endDate: weekEnd }),
-    listCalorieLogs(db, anchorDate),
-  ]);
+  const weekMealPlan = await listMealPlanEntries(db, {
+    startDate: weekStart,
+    endDate: weekEnd,
+  });
   return {
     weekStart,
     weekEnd,
     weekDates: dates,
     weekMealPlan,
-    calorieLogs,
   };
 }
 
 // ============================================================================
-// Recipes & Structured Ingredients
+// Recipes & Structured Ingredients (Auto-Computes Recipe Macros!)
 // ============================================================================
 
 export interface SaveRecipePayload {
@@ -88,10 +352,6 @@ export interface SaveRecipePayload {
   steps_markdown?: string | null;
   tags?: string[];
   is_favorite?: boolean;
-  kcal_per_serving?: number | null;
-  protein_g?: number | null;
-  fat_g?: number | null;
-  carbs_g?: number | null;
   ingredients: RecipeIngredientDraft[];
 }
 
@@ -113,30 +373,6 @@ export async function saveRecipeAction(payload: SaveRecipePayload) {
       .map((t) => t.trim().replace(/^#/, ""))
       .filter(Boolean),
     is_favorite: Boolean(payload.is_favorite),
-    kcal_per_serving:
-      payload.kcal_per_serving !== null &&
-      payload.kcal_per_serving !== undefined &&
-      Number(payload.kcal_per_serving) >= 0
-        ? Math.round(Number(payload.kcal_per_serving))
-        : null,
-    protein_g:
-      payload.protein_g !== null &&
-      payload.protein_g !== undefined &&
-      Number(payload.protein_g) >= 0
-        ? Number(payload.protein_g)
-        : null,
-    fat_g:
-      payload.fat_g !== null &&
-      payload.fat_g !== undefined &&
-      Number(payload.fat_g) >= 0
-        ? Number(payload.fat_g)
-        : null,
-    carbs_g:
-      payload.carbs_g !== null &&
-      payload.carbs_g !== undefined &&
-      Number(payload.carbs_g) >= 0
-        ? Number(payload.carbs_g)
-        : null,
   };
 
   if (payload.id) {
@@ -341,82 +577,5 @@ export async function adjustPantryQtyAction(payload: {
 export async function deletePantryItemAction(id: number) {
   const { db } = await requireOwnerSession();
   await deletePantryItem(db, id);
-  revalidateNutritionAndHome();
-}
-
-// ============================================================================
-// Open Food Facts Evaluation & Calorie Logs
-// ============================================================================
-
-export async function evaluateOffBarcodeAction(payload: {
-  barcode: string;
-  queryNote?: string | null;
-}): Promise<OffProductEvaluation> {
-  const { db, userId } = await requireOwnerSession();
-  const saved = await evaluateAndSaveOffProduct(
-    db,
-    userId,
-    payload.barcode.trim(),
-    payload.queryNote?.trim() || null
-  );
-  revalidateNutritionAndHome();
-  return saved;
-}
-
-export async function searchOffProductsAction(
-  query: string
-): Promise<OffParsedProduct[]> {
-  await requireOwnerSession();
-  if (!query.trim()) return [];
-  return searchOpenFoodFactsProducts(query.trim(), 8);
-}
-
-export async function saveCalorieLogAction(payload: {
-  logged_date: string;
-  meal_slot: "breakfast" | "lunch" | "dinner" | "snack";
-  title: string;
-  barcode?: string | null;
-  grams?: number | null;
-  kcal: number;
-  protein_g?: number | null;
-  fat_g?: number | null;
-  carbs_g?: number | null;
-}) {
-  const { db, userId } = await requireOwnerSession();
-  const title = payload.title.trim();
-  if (!title) throw new Error("Укажи название блюда или продукта");
-
-  await createCalorieLog(db, {
-    user_id: userId,
-    logged_date: payload.logged_date,
-    meal_slot: payload.meal_slot,
-    title,
-    barcode: payload.barcode?.trim() || null,
-    grams:
-      payload.grams !== null &&
-      payload.grams !== undefined &&
-      Number(payload.grams) > 0
-        ? Number(payload.grams)
-        : null,
-    kcal: Math.max(0, Math.round(Number(payload.kcal) || 0)),
-    protein_g:
-      payload.protein_g !== null && payload.protein_g !== undefined
-        ? Number(payload.protein_g)
-        : null,
-    fat_g:
-      payload.fat_g !== null && payload.fat_g !== undefined
-        ? Number(payload.fat_g)
-        : null,
-    carbs_g:
-      payload.carbs_g !== null && payload.carbs_g !== undefined
-        ? Number(payload.carbs_g)
-        : null,
-  });
-  revalidateNutritionAndHome();
-}
-
-export async function deleteCalorieLogAction(id: number) {
-  const { db } = await requireOwnerSession();
-  await deleteCalorieLog(db, id);
   revalidateNutritionAndHome();
 }

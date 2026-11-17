@@ -40,6 +40,7 @@ export default async function HomePage() {
       financeCategories={financeCategories}
       financeObligations={financeObligations}
       todayMeals={overview.todayMeals}
+      todayFoodDiary={overview.todayFoodDiary}
       uncheckedShoppingItems={overview.uncheckedShoppingItems}
       activeWorkoutWindows={overview.activeWorkoutWindows}
     />

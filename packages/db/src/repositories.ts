@@ -1,6 +1,6 @@
 import type { Json } from "./database.types";
 import { listWorkoutSessions } from "./health";
-import { listMealPlanEntries, listShoppingItems } from "./nutrition";
+import { getDayFoodDiary, listMealPlanEntries, listShoppingItems } from "./nutrition";
 import {
   cancelEntityRemindersInQueue,
   DEFAULT_REMINDER_LEAD_MINUTES,
@@ -1747,6 +1747,7 @@ export async function getTodayOverview(
     pendingActions,
     financeSummary,
     todayMeals,
+    todayFoodDiary,
     uncheckedShoppingItems,
     activeWorkoutWindows,
   ] = await Promise.all([
@@ -1764,12 +1765,30 @@ export async function getTodayOverview(
     listPendingActions(db, ["pending", "editing"]),
     getFinanceBalanceSummary(db),
     listMealPlanEntries(db, { startDate: todayDate, endDate: todayDate }),
+    getDayFoodDiary(db, todayDate),
     listShoppingItems(db, false),
     listWorkoutSessions(db, {
       startDate: todayDate,
       endDate: addDaysToIsoDate(todayDate, 5),
     }),
   ]);
+
+  const todayNutritionSummary = {
+    eaten_kcal: todayFoodDiary.totals.kcal,
+    kcal_target: todayFoodDiary.targets.kcal_target,
+    remaining_kcal: todayFoodDiary.totals.remaining_kcal,
+    pct_of_target: todayFoodDiary.totals.pct_of_target,
+    protein_g: todayFoodDiary.totals.protein_g,
+    protein_target_g: Number(todayFoodDiary.targets.protein_target_g),
+    fat_g: todayFoodDiary.totals.fat_g,
+    fat_target_g: Number(todayFoodDiary.targets.fat_target_g),
+    carbs_g: todayFoodDiary.totals.carbs_g,
+    carbs_target_g: Number(todayFoodDiary.targets.carbs_target_g),
+    is_configured: todayFoodDiary.targets.is_configured,
+    latest_weight_kg: todayFoodDiary.latestWeight
+      ? Number(todayFoodDiary.latestWeight.weight_kg)
+      : null,
+  };
 
   return {
     todayDate,
@@ -1784,6 +1803,8 @@ export async function getTodayOverview(
     pendingActions,
     financeSummary,
     todayMeals,
+    todayFoodDiary,
+    todayNutritionSummary,
     uncheckedShoppingItems,
     activeWorkoutWindows,
   };

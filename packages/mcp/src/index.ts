@@ -21,7 +21,7 @@ loadEnvSilently();
 
 const server = new McpServer({
   name: "life-os",
-  version: "1.3.0",
+  version: "1.4.0",
 });
 
 registerOverviewAndTaskTools(server);

@@ -163,19 +163,65 @@ export type Database = {
         }
         Relationships: []
       }
+      body_weight_logs: {
+        Row: {
+          body_fat_pct: number | null
+          created_at: string
+          id: number
+          logged_at: string
+          logged_date: string
+          note: string | null
+          source: string
+          user_id: string
+          waist_cm: number | null
+          weight_kg: number
+        }
+        Insert: {
+          body_fat_pct?: number | null
+          created_at?: string
+          id?: never
+          logged_at?: string
+          logged_date?: string
+          note?: string | null
+          source?: string
+          user_id: string
+          waist_cm?: number | null
+          weight_kg: number
+        }
+        Update: {
+          body_fat_pct?: number | null
+          created_at?: string
+          id?: never
+          logged_at?: string
+          logged_date?: string
+          note?: string | null
+          source?: string
+          user_id?: string
+          waist_cm?: number | null
+          weight_kg?: number
+        }
+        Relationships: []
+      }
       calorie_logs: {
         Row: {
           barcode: string | null
           carbs_g: number | null
           created_at: string
           fat_g: number | null
+          fiber_g: number | null
+          food_item_id: number | null
           grams: number | null
           id: number
           kcal: number
           logged_date: string
           meal_slot: string
+          photo_note: string | null
           protein_g: number | null
+          recipe_id: number | null
+          servings: number | null
+          source: string
           title: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -183,13 +229,20 @@ export type Database = {
           carbs_g?: number | null
           created_at?: string
           fat_g?: number | null
+          fiber_g?: number | null
+          food_item_id?: number | null
           grams?: number | null
           id?: never
           kcal: number
           logged_date?: string
           meal_slot?: string
+          photo_note?: string | null
           protein_g?: number | null
+          recipe_id?: number | null
+          servings?: number | null
+          source?: string
           title: string
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -197,16 +250,38 @@ export type Database = {
           carbs_g?: number | null
           created_at?: string
           fat_g?: number | null
+          fiber_g?: number | null
+          food_item_id?: number | null
           grams?: number | null
           id?: never
           kcal?: number
           logged_date?: string
           meal_slot?: string
+          photo_note?: string | null
           protein_g?: number | null
+          recipe_id?: number | null
+          servings?: number | null
+          source?: string
           title?: string
+          updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "calorie_logs_food_item_id_fkey"
+            columns: ["food_item_id"]
+            isOneToOne: false
+            referencedRelation: "food_items_dictionary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calorie_logs_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       daily_reviews: {
         Row: {
@@ -702,6 +777,60 @@ export type Database = {
           },
         ]
       }
+      food_items_dictionary: {
+        Row: {
+          barcode: string | null
+          brand: string | null
+          carbs_100g: number
+          created_at: string
+          default_portion_g: number
+          default_unit: string
+          display_name: string
+          fat_100g: number
+          fiber_100g: number | null
+          id: number
+          kcal_100g: number
+          normalized_name: string
+          protein_100g: number
+          source: string
+          user_id: string | null
+        }
+        Insert: {
+          barcode?: string | null
+          brand?: string | null
+          carbs_100g?: number
+          created_at?: string
+          default_portion_g?: number
+          default_unit?: string
+          display_name: string
+          fat_100g?: number
+          fiber_100g?: number | null
+          id?: never
+          kcal_100g: number
+          normalized_name: string
+          protein_100g?: number
+          source?: string
+          user_id?: string | null
+        }
+        Update: {
+          barcode?: string | null
+          brand?: string | null
+          carbs_100g?: number
+          created_at?: string
+          default_portion_g?: number
+          default_unit?: string
+          display_name?: string
+          fat_100g?: number
+          fiber_100g?: number | null
+          id?: never
+          kcal_100g?: number
+          normalized_name?: string
+          protein_100g?: number
+          source?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       goals: {
         Row: {
           created_at: string
@@ -1069,6 +1198,66 @@ export type Database = {
           },
         ]
       }
+      nutrition_targets: {
+        Row: {
+          activity_level: string | null
+          age: number | null
+          ai_explanation: string | null
+          baseline_weight_kg: number | null
+          carbs_target_g: number
+          configured_via: string | null
+          fat_target_g: number
+          fiber_target_g: number | null
+          goal_mode: string
+          height_cm: number | null
+          is_configured: boolean
+          kcal_target: number
+          protein_target_g: number
+          sex: string | null
+          target_weight_kg: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          activity_level?: string | null
+          age?: number | null
+          ai_explanation?: string | null
+          baseline_weight_kg?: number | null
+          carbs_target_g?: number
+          configured_via?: string | null
+          fat_target_g?: number
+          fiber_target_g?: number | null
+          goal_mode?: string
+          height_cm?: number | null
+          is_configured?: boolean
+          kcal_target?: number
+          protein_target_g?: number
+          sex?: string | null
+          target_weight_kg?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          activity_level?: string | null
+          age?: number | null
+          ai_explanation?: string | null
+          baseline_weight_kg?: number | null
+          carbs_target_g?: number
+          configured_via?: string | null
+          fat_target_g?: number
+          fiber_target_g?: number | null
+          goal_mode?: string
+          height_cm?: number | null
+          is_configured?: boolean
+          kcal_target?: number
+          protein_target_g?: number
+          sex?: string | null
+          target_weight_kg?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       off_product_evaluations: {
         Row: {
           barcode: string
@@ -1272,10 +1461,15 @@ export type Database = {
         Row: {
           aisle_group: string
           amount: number
+          carbs_100g: number | null
           display_name: string
+          fat_100g: number | null
+          grams_equivalent: number | null
           id: number
           ingredient_key: string
           is_optional: boolean
+          kcal_100g: number | null
+          protein_100g: number | null
           recipe_id: number
           unit: string
           user_id: string
@@ -1283,10 +1477,15 @@ export type Database = {
         Insert: {
           aisle_group?: string
           amount: number
+          carbs_100g?: number | null
           display_name: string
+          fat_100g?: number | null
+          grams_equivalent?: number | null
           id?: never
           ingredient_key: string
           is_optional?: boolean
+          kcal_100g?: number | null
+          protein_100g?: number | null
           recipe_id: number
           unit?: string
           user_id: string
@@ -1294,10 +1493,15 @@ export type Database = {
         Update: {
           aisle_group?: string
           amount?: number
+          carbs_100g?: number | null
           display_name?: string
+          fat_100g?: number | null
+          grams_equivalent?: number | null
           id?: never
           ingredient_key?: string
           is_optional?: boolean
+          kcal_100g?: number | null
+          protein_100g?: number | null
           recipe_id?: number
           unit?: string
           user_id?: string
@@ -1321,6 +1525,7 @@ export type Database = {
           fat_g: number | null
           id: number
           is_favorite: boolean
+          kcal_per_100g: number | null
           kcal_per_serving: number | null
           meal_category: string
           photo_storage_path: string | null
@@ -1328,6 +1533,11 @@ export type Database = {
           steps_markdown: string | null
           tags: string[]
           title: string
+          total_carbs_g: number | null
+          total_fat_g: number | null
+          total_kcal: number | null
+          total_protein_g: number | null
+          total_weight_g: number | null
           updated_at: string
           user_id: string
         }
@@ -1339,6 +1549,7 @@ export type Database = {
           fat_g?: number | null
           id?: never
           is_favorite?: boolean
+          kcal_per_100g?: number | null
           kcal_per_serving?: number | null
           meal_category?: string
           photo_storage_path?: string | null
@@ -1346,6 +1557,11 @@ export type Database = {
           steps_markdown?: string | null
           tags?: string[]
           title: string
+          total_carbs_g?: number | null
+          total_fat_g?: number | null
+          total_kcal?: number | null
+          total_protein_g?: number | null
+          total_weight_g?: number | null
           updated_at?: string
           user_id: string
         }
@@ -1357,6 +1573,7 @@ export type Database = {
           fat_g?: number | null
           id?: never
           is_favorite?: boolean
+          kcal_per_100g?: number | null
           kcal_per_serving?: number | null
           meal_category?: string
           photo_storage_path?: string | null
@@ -1364,6 +1581,11 @@ export type Database = {
           steps_markdown?: string | null
           tags?: string[]
           title?: string
+          total_carbs_g?: number | null
+          total_fat_g?: number | null
+          total_kcal?: number | null
+          total_protein_g?: number | null
+          total_weight_g?: number | null
           updated_at?: string
           user_id?: string
         }

@@ -190,6 +190,7 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           latest_state_pulse: overview.latestCheckin,
           evening_review: dailyReviewRes.data ?? null,
           finance_summary: overview.financeSummary,
+          today_nutrition_summary: overview.todayNutritionSummary,
           today_meals: overview.todayMeals.map((m) => ({
             id: m.id,
             meal_slot: m.meal_slot,

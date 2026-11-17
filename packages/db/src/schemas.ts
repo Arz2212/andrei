@@ -196,6 +196,78 @@ export const RecipeIngredientInputSchema = z.object({
   unit: IngredientUnitSchema.default("g"),
   aisle_group: z.string().max(100).default("Прочее"),
   is_optional: z.boolean().default(false),
+  grams_equivalent: z.number().positive().nullable().optional(),
+  kcal_100g: z.number().min(0).max(1000).nullable().optional(),
+  protein_100g: z.number().min(0).max(100).nullable().optional(),
+  fat_100g: z.number().min(0).max(100).nullable().optional(),
+  carbs_100g: z.number().min(0).max(100).nullable().optional(),
+});
+
+export const DiaryMealSlotSchema = z.enum(["breakfast", "lunch", "dinner", "snack"]);
+export const CalorieLogSourceSchema = z.enum([
+  "web",
+  "barcode",
+  "photo_ai",
+  "recipe",
+  "mcp",
+  "openclaw",
+]);
+export const NutritionGoalModeSchema = z.enum(["lose", "maintain", "gain", "recomp"]);
+export const FoodDictionarySourceSchema = z.enum([
+  "open_reference",
+  "openfoodfacts",
+  "ai_estimated",
+  "user",
+]);
+
+export const ConfigureNutritionTargetsInputSchema = z.object({
+  kcal_target: z.number().int().min(800).max(10000),
+  protein_target_g: z.number().min(20).max(600),
+  fat_target_g: z.number().min(15).max(400),
+  carbs_target_g: z.number().min(0).max(1200),
+  fiber_target_g: z.number().min(0).max(150).nullable().optional(),
+  goal_mode: NutritionGoalModeSchema.default("maintain"),
+  sex: z.enum(["male", "female"]).nullable().optional(),
+  age: z.number().int().min(12).max(110).nullable().optional(),
+  height_cm: z.number().min(100).max(250).nullable().optional(),
+  baseline_weight_kg: z.number().min(25).max(350).nullable().optional(),
+  target_weight_kg: z.number().min(25).max(350).nullable().optional(),
+  activity_level: z.string().max(200).nullable().optional(),
+  ai_explanation: z.string().max(4000).nullable().optional(),
+  configured_via: z.enum(["ai", "telegram_ai", "manual"]).default("ai"),
+});
+
+export const BodyWeightLogInputSchema = z.object({
+  logged_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  weight_kg: z.number().min(20).max(350),
+  body_fat_pct: z.number().min(2).max(70).nullable().optional(),
+  waist_cm: z.number().min(30).max(250).nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
+  source: z.string().max(50).default("web"),
+});
+
+export const LogFoodDiaryEntryInputSchema = z.object({
+  logged_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  meal_slot: DiaryMealSlotSchema.default("snack"),
+  title: z.string().min(1).max(300).optional(),
+  grams: z.number().positive().max(10000).nullable().optional(),
+  servings: z.number().positive().max(100).nullable().optional(),
+  food_item_id: z.number().int().positive().nullable().optional(),
+  recipe_id: z.number().int().positive().nullable().optional(),
+  barcode: z.string().max(64).nullable().optional(),
+  kcal: z.number().int().min(0).max(20000).optional(),
+  protein_g: z.number().min(0).max(2000).nullable().optional(),
+  fat_g: z.number().min(0).max(2000).nullable().optional(),
+  carbs_g: z.number().min(0).max(2000).nullable().optional(),
+  fiber_g: z.number().min(0).max(500).nullable().optional(),
+  source: CalorieLogSourceSchema.default("web"),
+  photo_note: z.string().max(1000).nullable().optional(),
 });
 
 export const WorkoutPreferredSlotSchema = z.enum([

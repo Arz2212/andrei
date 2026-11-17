@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@life-os/db"],
+  serverExternalPackages: ["zxing-wasm"],
   poweredByHeader: false,
   experimental: {
     serverActions: {

@@ -32,6 +32,7 @@ import {
   type BalanceViewMode,
   type DashboardWidget,
   type DashboardWidgetLayoutItem,
+  type DayFoodDiary,
   type DayPlan,
   type FinanceAccount,
   type FinanceBalanceSummary,
@@ -168,6 +169,7 @@ interface DashboardViewProps {
   financeCategories?: FinanceCategory[];
   financeObligations?: FinanceObligation[];
   todayMeals?: MealPlanEntryWithRecipe[];
+  todayFoodDiary?: DayFoodDiary | null;
   uncheckedShoppingItems?: ShoppingListItem[];
   activeWorkoutWindows?: WorkoutSession[];
 }
@@ -187,6 +189,7 @@ export function DashboardView({
   financeCategories = [],
   financeObligations = [],
   todayMeals = [],
+  todayFoodDiary = null,
   uncheckedShoppingItems = [],
   activeWorkoutWindows = [],
 }: DashboardViewProps) {
@@ -1163,14 +1166,17 @@ export function DashboardView({
       }
 
       case "today_meals": {
+        const diaryTotals = todayFoodDiary?.totals;
+        const diaryTargets = todayFoodDiary?.targets;
+
         return (
           <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
             <CardHeader className="pb-2.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <UtensilsIcon className="size-4 text-domain-nutrition" />
                   <CardTitle className="text-base font-semibold tracking-tight">
-                    Меню и покупки сегодня
+                    Питание и КБЖУ сегодня
                   </CardTitle>
                 </div>
                 {uncheckedShoppingItems.length > 0 ? (
@@ -1183,14 +1189,52 @@ export function DashboardView({
                 ) : null}
               </div>
               <CardDescription>
-                План готовки и авто-список покупок с учётом запасов дома
+                Дневник приёмов пищи, норма калорий и план готовки
               </CardDescription>
             </CardHeader>
 
-            <CardContent className="flex flex-col gap-2">
+            <CardContent className="flex flex-col gap-2.5">
+              {diaryTotals && diaryTargets ? (
+                <Link
+                  href="/nutrition"
+                  className="flex flex-col gap-1.5 rounded-xl bg-muted/55 p-3 transition-colors hover:bg-muted num-tabular"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      Съедено сегодня
+                    </span>
+                    <span className="text-base font-semibold text-foreground">
+                      {diaryTotals.kcal} / {diaryTargets.kcal_target} ккал
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(2, diaryTotals.pct_of_target)
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>
+                      Б {diaryTotals.protein_g} · Ж {diaryTotals.fat_g} · У{" "}
+                      {diaryTotals.carbs_g} г
+                    </span>
+                    <span>
+                      {diaryTotals.remaining_kcal >= 0
+                        ? `осталось ${diaryTotals.remaining_kcal} ккал`
+                        : `+${Math.abs(diaryTotals.remaining_kcal)} ккал`}
+                    </span>
+                  </div>
+                </Link>
+              ) : null}
+
               {todayMeals.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-                  На сегодня меню не расписано — добавь блюдо в разделе «Питание».
+                <div className="rounded-xl border border-dashed border-border p-3.5 text-xs text-muted-foreground">
+                  План готовки на сегодня свободен — открой дневник питания или меню недели.
                 </div>
               ) : (
                 todayMeals.map((meal) => {
