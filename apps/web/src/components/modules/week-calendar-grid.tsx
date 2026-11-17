@@ -23,7 +23,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { computePositionedBlocks } from "@/components/modules/day-timeline";
 
-const HOUR_HEIGHT_PX = 86;
+const HOUR_HEIGHT_PX = 62;
 const SHORT_WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
 
 const SPHERE_CARD_STYLES: Record<string, string> = {
@@ -70,7 +70,6 @@ export function WeekCalendarGrid({
 }: WeekCalendarGridProps) {
   const [daysMode, setDaysMode] = React.useState<"7" | "3">("7");
   const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
-  const verticalGridRef = React.useRef<HTMLDivElement | null>(null);
 
   const weekBounds = React.useMemo(
     () => getWeekBoundsIso(anchorDate),
@@ -138,45 +137,30 @@ export function WeekCalendarGrid({
     [startHour, endHour]
   );
 
-  // Gently center horizontal scroll on today if today is later in the week (Wed..Sun) on mobile
+  // Gently center horizontal scroll on today if today is Wed..Sun on mobile, while sticky left hour column stays pinned!
   React.useEffect(() => {
     if (daysMode !== "7" || !scrollContainerRef.current) return;
     const todayIdx = weekBounds.dates.indexOf(todayDate);
     if (todayIdx >= 2 && scrollContainerRef.current.clientWidth < 768) {
-      scrollContainerRef.current.scrollLeft = Math.max(0, (todayIdx - 0.35) * 164);
+      scrollContainerRef.current.scrollLeft = Math.max(
+        0,
+        (todayIdx - 1) * 164
+      );
     }
   }, [daysMode, todayDate, weekBounds.dates]);
-
-  // Scroll vertical grid so the earliest timed event of the week (or 09:00) is comfortably visible
-  React.useEffect(() => {
-    if (!verticalGridRef.current) return;
-    let earliestMin = 9 * 60;
-    let found = false;
-    for (const d of visibleDates) {
-      const bList = computePositionedBlocks(tasksByDate.get(d)?.timed ?? []);
-      for (const b of bList) {
-        if (!found || b.startMin < earliestMin) {
-          earliestMin = b.startMin;
-          found = true;
-        }
-      }
-    }
-    const targetHour = Math.max(startHour, Math.floor(earliestMin / 60) - 1);
-    verticalGridRef.current.scrollTop = (targetHour - startHour) * HOUR_HEIGHT_PX;
-  }, [visibleDates, tasksByDate, startHour]);
 
   const isCurrentWeek = weekBounds.dates.includes(todayDate);
   const stepDays = daysMode === "3" ? 3 : 7;
 
   const gridColsClass =
     daysMode === "3"
-      ? "grid-cols-[44px_repeat(3,minmax(160px,1fr))]"
-      : "grid-cols-[44px_repeat(7,minmax(164px,1fr))]";
+      ? "grid-cols-[46px_repeat(3,minmax(160px,1fr))]"
+      : "grid-cols-[46px_repeat(7,minmax(164px,1fr))]";
 
-  const minWidthClass = daysMode === "3" ? "min-w-[524px]" : "min-w-[1192px]";
+  const minWidthClass = daysMode === "3" ? "min-w-[526px]" : "min-w-[1194px]";
 
   return (
-    <div className="flex flex-col gap-3.5">
+    <div lang="ru" className="flex flex-col gap-3.5">
       {/* Week Navigation Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-border/80 bg-card px-3.5 py-2.5 sm:px-4 sm:py-3">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -232,10 +216,16 @@ export function WeekCalendarGrid({
             spacing={1}
             className="md:hidden"
           >
-            <ToggleGroupItem value="3" className="min-h-8 px-2.5 text-xs num-tabular">
+            <ToggleGroupItem
+              value="3"
+              className="min-h-8 px-2.5 text-xs num-tabular"
+            >
               3 дня
             </ToggleGroupItem>
-            <ToggleGroupItem value="7" className="min-h-8 px-2.5 text-xs num-tabular">
+            <ToggleGroupItem
+              value="7"
+              className="min-h-8 px-2.5 text-xs num-tabular"
+            >
               7 дней
             </ToggleGroupItem>
           </ToggleGroup>
@@ -248,7 +238,7 @@ export function WeekCalendarGrid({
         </div>
       </div>
 
-      {/* Time-Block Calendar Grid (horizontally scrollable container) */}
+      {/* Single-Page Time-Block Calendar Grid (horizontal scroll ONLY; zero nested vertical scroll!) */}
       <div
         ref={scrollContainerRef}
         className="overflow-x-auto rounded-2xl border border-border/80 bg-card touch-pan-x"
@@ -261,7 +251,7 @@ export function WeekCalendarGrid({
               gridColsClass
             )}
           >
-            <div className="flex items-center justify-center border-r border-border/60 px-1 py-2 text-[10px] font-medium text-muted-foreground">
+            <div className="sticky left-0 z-30 flex items-center justify-center border-r border-border bg-card px-1 py-2 text-[10px] font-medium text-muted-foreground">
               МСК
             </div>
             {visibleDates.map((isoDate) => {
@@ -302,14 +292,14 @@ export function WeekCalendarGrid({
             })}
           </div>
 
-          {/* All-Day / Flexible Slot Strip (2-line readable chips!) */}
+          {/* All-Day / Flexible Slot Strip (2-line readable chips + pinned sticky label!) */}
           <div
             className={cn(
               "grid border-b border-border/80 bg-background/40",
               gridColsClass
             )}
           >
-            <div className="flex items-center justify-center border-r border-border/60 px-0.5 py-2 text-[9.5px] text-muted-foreground">
+            <div className="sticky left-0 z-30 flex items-center justify-center border-r border-border bg-card px-0.5 py-2 text-[9.5px] font-medium text-muted-foreground">
               Слоты
             </div>
             {visibleDates.map((isoDate) => {
@@ -321,7 +311,7 @@ export function WeekCalendarGrid({
                 <div
                   key={isoDate}
                   className={cn(
-                    "flex min-h-10 flex-col gap-1.5 border-r border-border/60 p-1.5 last:border-r-0",
+                    "flex min-h-9 flex-col gap-1 border-r border-border/60 p-1.5 last:border-r-0",
                     isToday && "bg-accent/20"
                   )}
                 >
@@ -340,7 +330,7 @@ export function WeekCalendarGrid({
                         onClick={() => onEditTask(task)}
                         title={task.title}
                         className={cn(
-                          "flex cursor-pointer items-start gap-1.5 rounded-lg border border-border/65 px-2 py-1.5 text-[11.5px] leading-[1.24] transition-colors",
+                          "flex cursor-pointer items-start gap-1.5 rounded-lg border border-border/65 px-2 py-1 text-[11px] leading-[1.2] transition-colors",
                           tone,
                           isDone && "opacity-55"
                         )}
@@ -359,8 +349,9 @@ export function WeekCalendarGrid({
                           />
                         </div>
                         <span
+                          style={{ hyphens: "auto" }}
                           className={cn(
-                            "line-clamp-2 whitespace-normal break-words font-medium text-foreground",
+                            "line-clamp-2 whitespace-normal break-words hyphens-auto font-medium text-foreground",
                             isDone && "line-through text-muted-foreground"
                           )}
                         >
@@ -374,156 +365,147 @@ export function WeekCalendarGrid({
             })}
           </div>
 
-          {/* Main Hourly Time-Block Grid */}
+          {/* Main Hourly Time-Block Grid (Full Natural Height — No Inner Vertical Scroll!) */}
           <div
-            ref={verticalGridRef}
-            className="max-h-[680px] overflow-y-auto"
+            className={cn("grid", gridColsClass)}
+            style={{ height: `${hours.length * HOUR_HEIGHT_PX}px` }}
           >
-            <div
-              className={cn("grid", gridColsClass)}
-              style={{ height: `${hours.length * HOUR_HEIGHT_PX}px` }}
-            >
-              {/* Left Hour Axis (Compact 44px) */}
-              <div className="relative border-r border-border/60 bg-muted/20">
-                {hours.map((hr, idx) => (
-                  <div
-                    key={hr}
-                    style={{
-                      top: `${idx * HOUR_HEIGHT_PX}px`,
-                      height: `${HOUR_HEIGHT_PX}px`,
-                    }}
-                    className="absolute inset-x-0 border-b border-border/45 pt-1 pr-1.5 text-right text-[10px] text-muted-foreground num-tabular"
-                  >
-                    {String(hr).padStart(2, "0")}:00
-                  </div>
-                ))}
-              </div>
+            {/* Pinned Sticky Left Hour Scale (`sticky left-0 z-30 bg-card`) */}
+            <div className="sticky left-0 z-30 flex flex-col border-r border-border bg-card">
+              {hours.map((hr) => (
+                <div
+                  key={hr}
+                  style={{ height: `${HOUR_HEIGHT_PX}px` }}
+                  className="shrink-0 border-b border-border/45 pt-1 pr-1.5 text-right text-[10px] font-medium text-muted-foreground num-tabular"
+                >
+                  {String(hr).padStart(2, "0")}:00
+                </div>
+              ))}
+            </div>
 
-              {/* Day Columns */}
-              {visibleDates.map((isoDate) => {
-                const bucket = tasksByDate.get(isoDate);
-                const positioned = computePositionedBlocks(bucket?.timed ?? []);
-                const isToday = isoDate === todayDate;
+            {/* Day Columns */}
+            {visibleDates.map((isoDate) => {
+              const bucket = tasksByDate.get(isoDate);
+              const positioned = computePositionedBlocks(bucket?.timed ?? []);
+              const isToday = isoDate === todayDate;
 
-                return (
-                  <div
-                    key={isoDate}
-                    className={cn(
-                      "relative border-r border-border/60 last:border-r-0",
-                      isToday && "bg-accent/15"
-                    )}
-                  >
-                    {/* Clickable Hour Cells */}
-                    {hours.map((hr, idx) => {
-                      const hh = `${String(hr).padStart(2, "0")}:00`;
-                      return (
-                        <div
-                          key={hr}
-                          onClick={() => onCreateAtCell(isoDate, hh)}
-                          title={`Создать задачу ${isoDate} в ${hh}`}
-                          style={{
-                            top: `${idx * HOUR_HEIGHT_PX}px`,
-                            height: `${HOUR_HEIGHT_PX}px`,
-                          }}
-                          className="absolute inset-x-0 cursor-pointer border-b border-border/45 transition-colors hover:bg-muted/35"
-                        />
-                      );
-                    })}
+              return (
+                <div
+                  key={isoDate}
+                  className={cn(
+                    "relative border-r border-border/60 last:border-r-0",
+                    isToday && "bg-accent/15"
+                  )}
+                >
+                  {/* Clickable Hour Cells */}
+                  {hours.map((hr, idx) => {
+                    const hh = `${String(hr).padStart(2, "0")}:00`;
+                    return (
+                      <div
+                        key={hr}
+                        onClick={() => onCreateAtCell(isoDate, hh)}
+                        title={`Создать задачу ${isoDate} в ${hh}`}
+                        style={{
+                          top: `${idx * HOUR_HEIGHT_PX}px`,
+                          height: `${HOUR_HEIGHT_PX}px`,
+                        }}
+                        className="absolute inset-x-0 cursor-pointer border-b border-border/45 transition-colors hover:bg-muted/35"
+                      />
+                    );
+                  })}
 
-                    {/* Time-Blocked Cards (Taller + 3..4 Full Lines Readable!) */}
-                    {positioned.map((b) => {
-                      const { task, startMin, endMin, colIndex, totalCols } = b;
-                      const isDone = task.status === "done";
-                      const proj = task.project_id
-                        ? projectMap.get(task.project_id)
-                        : null;
-                      const sphere = (proj?.life_area as LifeArea) ?? "default";
-                      const tone =
-                        SPHERE_CARD_STYLES[sphere] ?? SPHERE_CARD_STYLES.default;
-                      const timeLabel = formatTaskTimeRange(
-                        task,
-                        "Europe/Moscow"
-                      );
+                  {/* Time-Blocked Cards (Compact 62px/h + Hyphenated 3..4 Line Titles!) */}
+                  {positioned.map((b) => {
+                    const { task, startMin, endMin, colIndex, totalCols } = b;
+                    const isDone = task.status === "done";
+                    const proj = task.project_id
+                      ? projectMap.get(task.project_id)
+                      : null;
+                    const sphere = (proj?.life_area as LifeArea) ?? "default";
+                    const tone =
+                      SPHERE_CARD_STYLES[sphere] ?? SPHERE_CARD_STYLES.default;
+                    const timeLabel = formatTaskTimeRange(
+                      task,
+                      "Europe/Moscow"
+                    );
 
-                      const topPx =
-                        ((startMin - startHour * 60) / 60) * HOUR_HEIGHT_PX + 1;
-                      const heightPx = Math.max(
-                        52,
-                        ((endMin - startMin) / 60) * HOUR_HEIGHT_PX - 2
-                      );
-                      const widthPct = 100 / totalCols;
-                      const leftPct = colIndex * widthPct;
+                    const topPx =
+                      ((startMin - startHour * 60) / 60) * HOUR_HEIGHT_PX + 1;
+                    const heightPx = Math.max(
+                      42,
+                      ((endMin - startMin) / 60) * HOUR_HEIGHT_PX - 2
+                    );
+                    const widthPct = 100 / totalCols;
+                    const leftPct = colIndex * widthPct;
 
-                      const lineClampClass =
-                        heightPx >= 110
-                          ? "line-clamp-5"
-                          : heightPx >= 76
-                            ? "line-clamp-4"
-                            : heightPx >= 58
-                              ? "line-clamp-3"
-                              : "line-clamp-2";
+                    const lineClampClass =
+                      heightPx >= 76
+                        ? "line-clamp-4"
+                        : heightPx >= 56
+                          ? "line-clamp-3"
+                          : "line-clamp-2";
 
-                      return (
-                        <div
-                          key={task.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditTask(task);
-                          }}
-                          title={task.title}
-                          style={{
-                            top: `${topPx}px`,
-                            height: `${heightPx}px`,
-                            left: `calc(${leftPct}% + 2px)`,
-                            width: `calc(${widthPct}% - 4px)`,
-                          }}
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditTask(task);
+                        }}
+                        title={task.title}
+                        style={{
+                          top: `${topPx}px`,
+                          height: `${heightPx}px`,
+                          left: `calc(${leftPct}% + 2px)`,
+                          width: `calc(${widthPct}% - 4px)`,
+                        }}
+                        className={cn(
+                          "absolute z-10 flex cursor-pointer flex-col gap-0.5 overflow-hidden rounded-lg border border-border/75 px-1.5 py-1 shadow-2xs transition-colors",
+                          tone,
+                          isDone && "opacity-60"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] leading-none font-semibold text-muted-foreground num-tabular">
+                            {timeLabel}
+                          </span>
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="shrink-0"
+                          >
+                            <Checkbox
+                              checked={isDone}
+                              onCheckedChange={(v) =>
+                                onToggleTask(task, Boolean(v))
+                              }
+                              aria-label={`Выполнить «${task.title}»`}
+                              className="size-3.5"
+                            />
+                          </div>
+                        </div>
+
+                        <span
+                          style={{ hyphens: "auto" }}
                           className={cn(
-                            "absolute z-10 flex cursor-pointer flex-col gap-1 overflow-hidden rounded-xl border border-border/75 px-2 py-1.5 shadow-2xs transition-colors",
-                            tone,
-                            isDone && "opacity-60"
+                            "whitespace-normal break-words hyphens-auto text-[11px] leading-[1.18] font-medium text-foreground",
+                            lineClampClass,
+                            isDone && "line-through text-muted-foreground"
                           )}
                         >
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-[10.5px] leading-none font-semibold text-muted-foreground num-tabular">
-                              {timeLabel}
-                            </span>
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              className="shrink-0"
-                            >
-                              <Checkbox
-                                checked={isDone}
-                                onCheckedChange={(v) =>
-                                  onToggleTask(task, Boolean(v))
-                                }
-                                aria-label={`Выполнить «${task.title}»`}
-                                className="size-3.5"
-                              />
-                            </div>
-                          </div>
+                          {task.title}
+                        </span>
 
-                          <span
-                            className={cn(
-                              "whitespace-normal break-words text-[12px] leading-[1.24] font-medium text-foreground",
-                              lineClampClass,
-                              isDone && "line-through text-muted-foreground"
-                            )}
-                          >
-                            {task.title}
+                        {heightPx >= 86 && proj ? (
+                          <span className="mt-auto truncate text-[9.5px] text-muted-foreground">
+                            {proj.title}
                           </span>
-
-                          {heightPx >= 102 && proj ? (
-                            <span className="mt-auto truncate text-[10px] text-muted-foreground">
-                              {proj.title}
-                            </span>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

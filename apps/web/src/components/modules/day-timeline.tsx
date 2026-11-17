@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 
-const HOUR_HEIGHT_PX = 68;
+const HOUR_HEIGHT_PX = 58;
 
 const DOMAIN_BLOCK_STYLES: Record<string, string> = {
   work: "border-l-3 border-l-domain-work bg-domain-work/12 hover:bg-domain-work/18",
@@ -335,8 +335,11 @@ export function DayTimeline({
         </div>
       ) : null}
 
-      {/* Interactive Hourly Vertical Timeline */}
-      <div className="max-h-[540px] overflow-y-auto rounded-xl border border-border/80 bg-background/45">
+      {/* Interactive Hourly Vertical Timeline (Single Page Scroll — No Nested Scrollbar!) */}
+      <div
+        lang="ru"
+        className="overflow-hidden rounded-xl border border-border/80 bg-background/45"
+      >
         <div
           className="relative select-none"
           style={{ height: `${hours.length * HOUR_HEIGHT_PX}px` }}
