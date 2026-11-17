@@ -190,6 +190,22 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           latest_state_pulse: overview.latestCheckin,
           evening_review: dailyReviewRes.data ?? null,
           finance_summary: overview.financeSummary,
+          today_meals: overview.todayMeals.map((m) => ({
+            id: m.id,
+            meal_slot: m.meal_slot,
+            status: m.status,
+            planned_servings: Number(m.planned_servings),
+            title: m.recipe?.title ?? m.custom_meal_title ?? "Блюдо",
+          })),
+          unchecked_shopping_count: overview.uncheckedShoppingItems.length,
+          active_workout_windows: overview.activeWorkoutWindows.map((w) => ({
+            id: w.id,
+            title: w.title,
+            window_start_date: w.window_start_date,
+            window_end_date: w.window_end_date,
+            preferred_slot: w.preferred_slot,
+            status: w.status,
+          })),
         });
       } catch (err) {
         return errResult(err instanceof Error ? err.message : String(err));

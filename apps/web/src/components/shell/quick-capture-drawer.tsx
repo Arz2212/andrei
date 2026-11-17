@@ -8,6 +8,7 @@ import {
   ClockIcon,
   HeartPulseIcon,
   Loader2Icon,
+  ShoppingCartIcon,
   SparklesIcon,
   WalletIcon,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import {
   type DaySlot,
   type FinanceAccount,
   type FinanceCategory,
+  type IngredientUnit,
   type SpendNature,
 } from "@life-os/db";
 import {
@@ -26,6 +28,11 @@ import {
   type ConflictPreviewItem,
 } from "@/app/actions";
 import { saveFinanceTransactionAction } from "@/app/finance-actions";
+import { addShoppingItemAction } from "@/app/nutrition-actions";
+import {
+  AISLE_GROUPS,
+  UNIT_LABELS_RU,
+} from "@/components/modules/nutrition-modals";
 import {
   Drawer,
   DrawerContent,
@@ -64,9 +71,9 @@ export function QuickCaptureDrawer({
   financeAccounts = [],
   financeCategories = [],
 }: QuickCaptureDrawerProps) {
-  const [mode, setMode] = React.useState<"task" | "finance" | "state" | "rule">(
-    "task"
-  );
+  const [mode, setMode] = React.useState<
+    "task" | "finance" | "shopping" | "state" | "rule"
+  >("task");
   const [pending, startTransition] = React.useTransition();
 
   // Task state
@@ -86,6 +93,12 @@ export function QuickCaptureDrawer({
   const [txCategoryId, setTxCategoryId] = React.useState("none");
   const [txDescription, setTxDescription] = React.useState("");
   const [txNature, setTxNature] = React.useState<SpendNature>("personal");
+
+  // Shopping quick capture state
+  const [shopName, setShopName] = React.useState("");
+  const [shopQty, setShopQty] = React.useState("1");
+  const [shopUnit, setShopUnit] = React.useState<IngredientUnit>("pcs");
+  const [shopAisle, setShopAisle] = React.useState("Овощи и зелень");
 
   // Pulse state
   const [energy, setEnergy] = React.useState("7");
@@ -141,10 +154,7 @@ export function QuickCaptureDrawer({
   }, [open, mode, isToday, plannedDate, scheduledTime, minutes, isMeeting]);
 
   const filteredFinanceCategories = React.useMemo(
-    () =>
-      financeCategories.filter(
-        (c) => c.kind === txKind && !c.is_archived
-      ),
+    () => financeCategories.filter((c) => c.kind === txKind && !c.is_archived),
     [financeCategories, txKind]
   );
 
@@ -196,6 +206,17 @@ export function QuickCaptureDrawer({
           toast.success(
             txKind === "expense" ? "Расход записан" : "Доход записан"
           );
+        } else if (mode === "shopping") {
+          if (!shopName.trim()) return;
+          await addShoppingItemAction({
+            display_name: shopName,
+            quantity_needed: Number(shopQty) || 1,
+            unit: shopUnit,
+            aisle_group: shopAisle,
+          });
+          setShopName("");
+          setShopQty("1");
+          toast.success("Добавлено в список покупок");
         } else if (mode === "state") {
           await createStateCheckinAction({
             energy_score: Number(energy) || 7,
@@ -240,6 +261,7 @@ export function QuickCaptureDrawer({
               if (
                 v === "task" ||
                 v === "finance" ||
+                v === "shopping" ||
                 v === "state" ||
                 v === "rule"
               ) {
@@ -248,24 +270,40 @@ export function QuickCaptureDrawer({
             }}
             variant="outline"
             spacing={1}
-            className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-4"
+            className="flex w-full flex-wrap justify-start gap-1.5"
           >
-            <ToggleGroupItem value="task" className="min-h-11 w-full rounded-xl">
+            <ToggleGroupItem
+              value="task"
+              className="min-h-10 flex-1 rounded-xl px-2.5 text-xs"
+            >
               <CheckCircle2Icon data-icon="inline-start" />
               Задача
             </ToggleGroupItem>
             <ToggleGroupItem
               value="finance"
-              className="min-h-11 w-full rounded-xl"
+              className="min-h-10 flex-1 rounded-xl px-2.5 text-xs"
             >
               <WalletIcon data-icon="inline-start" />
               Деньги
             </ToggleGroupItem>
-            <ToggleGroupItem value="state" className="min-h-11 w-full rounded-xl">
+            <ToggleGroupItem
+              value="shopping"
+              className="min-h-10 flex-1 rounded-xl px-2.5 text-xs"
+            >
+              <ShoppingCartIcon data-icon="inline-start" />
+              Покупка
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="state"
+              className="min-h-10 flex-1 rounded-xl px-2.5 text-xs"
+            >
               <HeartPulseIcon data-icon="inline-start" />
               Пульс
             </ToggleGroupItem>
-            <ToggleGroupItem value="rule" className="min-h-11 w-full rounded-xl">
+            <ToggleGroupItem
+              value="rule"
+              className="min-h-10 flex-1 rounded-xl px-2.5 text-xs"
+            >
               <SparklesIcon data-icon="inline-start" />
               Правило
             </ToggleGroupItem>
@@ -338,7 +376,10 @@ export function QuickCaptureDrawer({
                       </Field>
 
                       <Field>
-                        <FieldLabel htmlFor="qc-time" className="flex items-center gap-1">
+                        <FieldLabel
+                          htmlFor="qc-time"
+                          className="flex items-center gap-1"
+                        >
                           <ClockIcon className="size-3.5 text-muted-foreground" />
                           Точное время (МСК)
                         </FieldLabel>
@@ -545,6 +586,78 @@ export function QuickCaptureDrawer({
                     </ToggleGroup>
                   </Field>
                 ) : null}
+              </FieldGroup>
+            ) : null}
+
+            {mode === "shopping" ? (
+              <FieldGroup className="gap-3.5">
+                <Field>
+                  <FieldLabel htmlFor="qc-shop-name">
+                    Продукт в список покупок
+                  </FieldLabel>
+                  <Input
+                    id="qc-shop-name"
+                    placeholder="Например: Авокадо, яйца С0 или оливковое масло"
+                    value={shopName}
+                    onChange={(e) => setShopName(e.target.value)}
+                    required
+                    className="min-h-11"
+                  />
+                </Field>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field>
+                    <FieldLabel htmlFor="qc-shop-qty">Количество</FieldLabel>
+                    <Input
+                      id="qc-shop-qty"
+                      type="number"
+                      min={0.1}
+                      step="any"
+                      value={shopQty}
+                      onChange={(e) => setShopQty(e.target.value)}
+                      className="min-h-11 num-tabular"
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel>Единица</FieldLabel>
+                    <Select
+                      value={shopUnit}
+                      onValueChange={(v) => setShopUnit(v as IngredientUnit)}
+                    >
+                      <SelectTrigger className="min-h-11 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {Object.entries(UNIT_LABELS_RU).map(([k, lbl]) => (
+                            <SelectItem key={k} value={k}>
+                              {lbl}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+
+                <Field>
+                  <FieldLabel>Отдел магазина</FieldLabel>
+                  <Select value={shopAisle} onValueChange={setShopAisle}>
+                    <SelectTrigger className="min-h-11 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {AISLE_GROUPS.map((g) => (
+                          <SelectItem key={g} value={g}>
+                            {g}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
               </FieldGroup>
             ) : null}
 

@@ -850,6 +850,7 @@ export type Database = {
           custom_meal_title: string | null
           id: number
           meal_slot: string
+          notes: string | null
           plan_date: string
           planned_servings: number
           recipe_id: number | null
@@ -862,6 +863,7 @@ export type Database = {
           custom_meal_title?: string | null
           id?: never
           meal_slot: string
+          notes?: string | null
           plan_date: string
           planned_servings?: number
           recipe_id?: number | null
@@ -874,6 +876,7 @@ export type Database = {
           custom_meal_title?: string | null
           id?: never
           meal_slot?: string
+          notes?: string | null
           plan_date?: string
           planned_servings?: number
           recipe_id?: number | null
@@ -1119,6 +1122,7 @@ export type Database = {
       }
       pantry_items: {
         Row: {
+          aisle_group: string
           display_name: string
           expires_on: string | null
           id: number
@@ -1130,6 +1134,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          aisle_group?: string
           display_name: string
           expires_on?: string | null
           id?: never
@@ -1141,6 +1146,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          aisle_group?: string
           display_name?: string
           expires_on?: string | null
           id?: never

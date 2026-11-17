@@ -8,6 +8,7 @@ import {
   BookHeartIcon,
   CalendarRangeIcon,
   CheckSquareIcon,
+  CompassIcon,
   HeartPulseIcon,
   LayoutGridIcon,
   LogOutIcon,
@@ -29,6 +30,13 @@ import { BrandLogo } from "@/components/shell/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { QuickCaptureDrawer } from "@/components/shell/quick-capture-drawer";
 
 interface AppShellProps {
@@ -62,6 +70,18 @@ const PRIMARY_NAV = [
     icon: WalletIcon,
   },
   {
+    href: "/nutrition",
+    label: "Питание и покупки",
+    mobileLabel: "Питание",
+    icon: UtensilsIcon,
+  },
+  {
+    href: "/health",
+    label: "Здоровье и тренировки",
+    mobileLabel: "Здоровье",
+    icon: HeartPulseIcon,
+  },
+  {
     href: "/journal",
     label: "Состояние и дневник",
     mobileLabel: "Дневник",
@@ -70,11 +90,46 @@ const PRIMARY_NAV = [
 ] as const;
 
 const MOBILE_BOTTOM_LEFT = [PRIMARY_NAV[0], PRIMARY_NAV[1]] as const;
-const MOBILE_BOTTOM_RIGHT = [PRIMARY_NAV[3], PRIMARY_NAV[4]] as const;
+const MOBILE_HUB_ITEMS = [
+  {
+    href: "/nutrition",
+    title: "Питание и покупки",
+    subtitle: "Меню недели, рецепты, запасы дома и покупки",
+    icon: UtensilsIcon,
+  },
+  {
+    href: "/health",
+    title: "Здоровье и тренировки",
+    subtitle: "Плавающие окна, программы, медкарта и PDF",
+    icon: HeartPulseIcon,
+  },
+  {
+    href: "/journal",
+    title: "Состояние и дневник",
+    subtitle: "Пульс энергии 1–10 и вечерняя оценка дня",
+    icon: BookHeartIcon,
+  },
+  {
+    href: "/tasks?tab=week",
+    title: "Календарь недели",
+    subtitle: "7-дневная сетка встреч и задач по часам",
+    icon: CalendarRangeIcon,
+  },
+  {
+    href: "/goals",
+    title: "Цели и привычки",
+    subtitle: "Этап 4 · ориентиры и ежедневные трекеры",
+    icon: TargetIcon,
+  },
+  {
+    href: "/settings",
+    title: "ИИ и настройки",
+    subtitle: "Характер напарника, правила и сводки",
+    icon: SlidersHorizontalIcon,
+  },
+] as const;
 
 const MODULE_NAV = [
-  { href: "/health", label: "Здоровье", stage: "Этап 3", icon: HeartPulseIcon },
-  { href: "/nutrition", label: "Питание", stage: "Этап 3", icon: UtensilsIcon },
   { href: "/goals", label: "Цели и привычки", stage: "Этап 4", icon: TargetIcon },
 ] as const;
 
@@ -94,6 +149,7 @@ export function AppShell({
   const [mounted, setMounted] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
   const [quickOpen, setQuickOpen] = React.useState(false);
+  const [hubOpen, setHubOpen] = React.useState(false);
   const isRealtimeConnected = useRealtimeRefresh();
 
   React.useEffect(() => {
@@ -119,6 +175,13 @@ export function AppShell({
   const isWeekCalendarActive = pathname === "/tasks" && currentTab === "week";
   const isSettingsActive =
     pathname === "/settings" || pathname.startsWith("/settings/");
+  const isFinanceActive = isPrimaryActive("/finance");
+  const isHubSectionActive =
+    pathname.startsWith("/nutrition") ||
+    pathname.startsWith("/health") ||
+    pathname.startsWith("/journal") ||
+    pathname.startsWith("/goals") ||
+    isSettingsActive;
 
   return (
     <div className="flex min-h-dvh w-full bg-background text-foreground">
@@ -241,7 +304,7 @@ export function AppShell({
 
           {!collapsed ? (
             <span className="px-3 pb-1 text-xs font-medium text-muted-foreground">
-              Следующие этапы
+              Следующий этап
             </span>
           ) : null}
 
@@ -504,25 +567,76 @@ export function AppShell({
             </Button>
           </div>
 
-          {MOBILE_BOTTOM_RIGHT.map((item) => {
-            const Icon = item.icon;
-            const active = isPrimaryActive(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[11px] font-medium transition-colors",
-                  active ? "text-primary" : "text-muted-foreground"
-                )}
-              >
-                <Icon className="size-5" />
-                <span className="truncate">{item.mobileLabel}</span>
-              </Link>
-            );
-          })}
+          <Link
+            href="/finance"
+            className={cn(
+              "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[11px] font-medium transition-colors",
+              isFinanceActive ? "text-primary" : "text-muted-foreground"
+            )}
+          >
+            <WalletIcon className="size-5" />
+            <span className="truncate">Деньги</span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => setHubOpen(true)}
+            className={cn(
+              "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[11px] font-medium transition-colors",
+              isHubSectionActive ? "text-primary" : "text-muted-foreground"
+            )}
+          >
+            <CompassIcon className="size-5" />
+            <span className="truncate">Разделы</span>
+          </button>
         </div>
       </nav>
+
+      {/* Mobile Sections Hub Drawer (Vaul) */}
+      <Drawer open={hubOpen} onOpenChange={setHubOpen}>
+        <DrawerContent className="mx-auto max-h-[85dvh] w-full max-w-lg rounded-t-2xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <DrawerHeader className="px-0 text-left">
+            <DrawerTitle className="text-lg font-semibold tracking-tight">
+              Разделы Life OS
+            </DrawerTitle>
+            <DrawerDescription>
+              Быстрый переход ко всем сферам жизни и настройкам
+            </DrawerDescription>
+          </DrawerHeader>
+
+          <div className="grid grid-cols-1 gap-2 overflow-y-auto pb-2">
+            {MOBILE_HUB_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const active = isPrimaryActive(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setHubOpen(false)}
+                  className={cn(
+                    "flex min-h-14 items-center gap-3.5 rounded-2xl border p-3.5 transition-colors",
+                    active
+                      ? "border-primary/40 bg-accent/65 text-foreground"
+                      : "border-border/80 bg-card hover:bg-muted/50"
+                  )}
+                >
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                    <Icon className="size-5" />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm font-semibold">
+                      {item.title}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {item.subtitle}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       <QuickCaptureDrawer
         open={quickOpen}

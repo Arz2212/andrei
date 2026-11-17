@@ -1,4 +1,6 @@
 import type { Json } from "./database.types";
+import { listWorkoutSessions } from "./health";
+import { listMealPlanEntries, listShoppingItems } from "./nutrition";
 import {
   cancelEntityRemindersInQueue,
   DEFAULT_REMINDER_LEAD_MINUTES,
@@ -1744,6 +1746,9 @@ export async function getTodayOverview(
     recentCheckins,
     pendingActions,
     financeSummary,
+    todayMeals,
+    uncheckedShoppingItems,
+    activeWorkoutWindows,
   ] = await Promise.all([
     getOwnerProfile(db),
     getDashboardWidgets(db),
@@ -1758,6 +1763,12 @@ export async function getTodayOverview(
     listStateCheckins(db, 5),
     listPendingActions(db, ["pending", "editing"]),
     getFinanceBalanceSummary(db),
+    listMealPlanEntries(db, { startDate: todayDate, endDate: todayDate }),
+    listShoppingItems(db, false),
+    listWorkoutSessions(db, {
+      startDate: todayDate,
+      endDate: addDaysToIsoDate(todayDate, 5),
+    }),
   ]);
 
   return {
@@ -1772,6 +1783,9 @@ export async function getTodayOverview(
     recentCheckins,
     pendingActions,
     financeSummary,
+    todayMeals,
+    uncheckedShoppingItems,
+    activeWorkoutWindows,
   };
 }
 

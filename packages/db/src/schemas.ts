@@ -151,3 +151,64 @@ export const StagedExpenseItemSchema = z.object({
   spend_nature: SpendNatureSchema.default("personal"),
   reimbursable_amount: z.number().min(0).default(0),
 });
+
+// ============================================================================
+// Stage 3 — Nutrition & Health Zod Schemas
+// ============================================================================
+
+export const IngredientUnitSchema = z.enum([
+  "g",
+  "kg",
+  "ml",
+  "l",
+  "pcs",
+  "tbsp",
+  "tsp",
+  "pack",
+]);
+export const MealCategorySchema = z.enum([
+  "breakfast",
+  "lunch",
+  "dinner",
+  "snack",
+  "batch_prep",
+]);
+export const MealSlotSchema = z.enum([
+  "breakfast",
+  "lunch",
+  "dinner",
+  "snack",
+  "cook_ahead",
+]);
+export const MealPlanStatusSchema = z.enum(["planned", "cooked", "eaten", "skipped"]);
+export const ShoppingAddedFromSchema = z.enum([
+  "meal_plan",
+  "manual",
+  "telegram",
+  "mcp",
+  "openclaw",
+]);
+
+export const RecipeIngredientInputSchema = z.object({
+  display_name: z.string().min(1).max(200),
+  ingredient_key: z.string().max(200).optional(),
+  amount: z.number().positive(),
+  unit: IngredientUnitSchema.default("g"),
+  aisle_group: z.string().max(100).default("Прочее"),
+  is_optional: z.boolean().default(false),
+});
+
+export const WorkoutPreferredSlotSchema = z.enum([
+  "morning",
+  "afternoon",
+  "evening",
+  "flexible",
+]);
+export const WorkoutSessionStatusSchema = z.enum(["planned", "completed", "skipped"]);
+export const MedicalRecordKindSchema = z.enum([
+  "visit",
+  "lab_panel",
+  "imaging",
+  "checkup",
+  "other",
+]);

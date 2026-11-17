@@ -20,6 +20,18 @@ const WATCHED_TABLES = [
   "finance_categories",
   "finance_obligations",
   "finance_debts",
+  "recipes",
+  "recipe_ingredients",
+  "meal_plan_entries",
+  "pantry_items",
+  "shopping_list_items",
+  "calorie_logs",
+  "workout_programs",
+  "workout_sessions",
+  "medical_doctors",
+  "medical_records",
+  "medical_follow_ups",
+  "medical_documents",
 ] as const;
 
 export function useRealtimeRefresh() {

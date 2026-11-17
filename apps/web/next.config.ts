@@ -3,6 +3,12 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   transpilePackages: ["@life-os/db"],
   poweredByHeader: false,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "26mb",
+    },
+    proxyClientMaxBodySize: "26mb",
+  },
   async headers() {
     return [
       {

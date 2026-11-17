@@ -7,17 +7,22 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CalendarClockIcon,
+  CheckCircle2Icon,
   CheckIcon,
+  ChefHatIcon,
   ClockIcon,
+  DumbbellIcon,
   HourglassIcon,
   LayersIcon,
   MoonStarIcon,
   PencilIcon,
   PlusIcon,
+  ShoppingCartIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
   SunIcon,
   SunsetIcon,
+  UtensilsIcon,
   WalletIcon,
   XIcon,
   ZapIcon,
@@ -32,12 +37,17 @@ import {
   type FinanceBalanceSummary,
   type FinanceCategory,
   type FinanceObligation,
+  type MealPlanEntryWithRecipe,
+  type MealSlot,
   type PendingAction,
   type Project,
+  type ShoppingListItem,
   type StateCheckin,
   type Task,
   type UserProfile,
   type WidgetKey,
+  type WorkoutPreferredSlot,
+  type WorkoutSession,
 } from "@life-os/db";
 import {
   cancelPendingActionWeb,
@@ -50,6 +60,10 @@ import {
   updateStateCheckinAction,
 } from "@/app/actions";
 import { setBalanceViewModeAction } from "@/app/finance-actions";
+import { markMealStatusAction } from "@/app/nutrition-actions";
+import { completeWorkoutSessionAction } from "@/app/health-actions";
+import { MEAL_SLOT_LABELS } from "@/components/modules/nutrition-modals";
+import { WORKOUT_SLOT_LABELS } from "@/components/modules/health-modals";
 import { cn, formatDateShortRu, formatMinutesRu, formatRub } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -94,6 +108,8 @@ const STAGE1_WIDGET_KEYS: WidgetKey[] = [
   "waiting_radar",
   "day_slots_buffer",
   "safe_to_spend",
+  "today_meals",
+  "workout_window",
   "pending_confirmations",
 ];
 
@@ -151,6 +167,9 @@ interface DashboardViewProps {
   financeAccounts?: FinanceAccount[];
   financeCategories?: FinanceCategory[];
   financeObligations?: FinanceObligation[];
+  todayMeals?: MealPlanEntryWithRecipe[];
+  uncheckedShoppingItems?: ShoppingListItem[];
+  activeWorkoutWindows?: WorkoutSession[];
 }
 
 export function DashboardView({
@@ -167,6 +186,9 @@ export function DashboardView({
   financeAccounts = [],
   financeCategories = [],
   financeObligations = [],
+  todayMeals = [],
+  uncheckedShoppingItems = [],
+  activeWorkoutWindows = [],
 }: DashboardViewProps) {
   const [, startTransition] = React.useTransition();
 
@@ -277,7 +299,9 @@ export function DashboardView({
       { widget_key: "waiting_radar", is_visible: true, desktop_order: 4, mobile_order: 4, desktop_col_span: 4 },
       { widget_key: "day_slots_buffer", is_visible: true, desktop_order: 5, mobile_order: 5, desktop_col_span: 6 },
       { widget_key: "safe_to_spend", is_visible: true, desktop_order: 6, mobile_order: 6, desktop_col_span: 6 },
-      { widget_key: "pending_confirmations", is_visible: true, desktop_order: 7, mobile_order: 7, desktop_col_span: 6 },
+      { widget_key: "today_meals", is_visible: true, desktop_order: 7, mobile_order: 7, desktop_col_span: 6 },
+      { widget_key: "workout_window", is_visible: true, desktop_order: 8, mobile_order: 8, desktop_col_span: 6 },
+      { widget_key: "pending_confirmations", is_visible: true, desktop_order: 9, mobile_order: 9, desktop_col_span: 6 },
     ];
 
     return defaults
@@ -1132,6 +1156,241 @@ export function DashboardView({
                 className="font-medium text-foreground hover:text-primary"
               >
                 Все ожидания
+              </Link>
+            </CardFooter>
+          </Card>
+        );
+      }
+
+      case "today_meals": {
+        return (
+          <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
+            <CardHeader className="pb-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <UtensilsIcon className="size-4 text-domain-nutrition" />
+                  <CardTitle className="text-base font-semibold tracking-tight">
+                    Меню и покупки сегодня
+                  </CardTitle>
+                </div>
+                {uncheckedShoppingItems.length > 0 ? (
+                  <Link href="/nutrition?tab=shopping">
+                    <Badge variant="secondary" className="gap-1 num-tabular">
+                      <ShoppingCartIcon className="size-3" />
+                      Купить: {uncheckedShoppingItems.length}
+                    </Badge>
+                  </Link>
+                ) : null}
+              </div>
+              <CardDescription>
+                План готовки и авто-список покупок с учётом запасов дома
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="flex flex-col gap-2">
+              {todayMeals.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  На сегодня меню не расписано — добавь блюдо в разделе «Питание».
+                </div>
+              ) : (
+                todayMeals.map((meal) => {
+                  const isDone =
+                    meal.status === "cooked" || meal.status === "eaten";
+                  const mealTitle =
+                    meal.recipe?.title || meal.custom_meal_title || "Блюдо";
+                  return (
+                    <div
+                      key={meal.id}
+                      className="flex items-center justify-between gap-2.5 rounded-xl border border-border/80 bg-background/55 px-3 py-2.5"
+                    >
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline" className="text-[11px]">
+                            {MEAL_SLOT_LABELS[meal.meal_slot as MealSlot] ??
+                              meal.meal_slot}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground num-tabular">
+                            {Number(meal.planned_servings)} порц.
+                          </span>
+                        </div>
+                        <span
+                          className={cn(
+                            "truncate text-sm font-medium",
+                            isDone && "line-through text-muted-foreground"
+                          )}
+                        >
+                          {mealTitle}
+                        </span>
+                      </div>
+
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant={isDone ? "outline" : "secondary"}
+                        onClick={() =>
+                          startTransition(async () => {
+                            try {
+                              await markMealStatusAction({
+                                id: meal.id,
+                                status: isDone ? "planned" : "cooked",
+                                deductFromPantry: !isDone,
+                              });
+                              toast.success(
+                                isDone
+                                  ? "Возвращено в план"
+                                  : "Отмечено приготовленным"
+                              );
+                            } catch {
+                              toast.error("Не удалось обновить статус блюда");
+                            }
+                          })
+                        }
+                        className="min-h-8 shrink-0 rounded-lg"
+                      >
+                        <ChefHatIcon data-icon="inline-start" />
+                        {isDone ? "Готово" : "Приготовлено"}
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+
+            <CardFooter className="flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+              <Link
+                href="/nutrition?tab=shopping"
+                className="truncate hover:text-foreground num-tabular"
+              >
+                Список покупок ({uncheckedShoppingItems.length})
+              </Link>
+              <Link
+                href="/nutrition"
+                className="shrink-0 font-medium text-foreground hover:text-primary"
+              >
+                Открыть питание
+              </Link>
+            </CardFooter>
+          </Card>
+        );
+      }
+
+      case "workout_window": {
+        const plannedWindows = activeWorkoutWindows.filter(
+          (w) => w.status === "planned"
+        );
+        const displayWindows =
+          plannedWindows.length > 0
+            ? plannedWindows.slice(0, 2)
+            : activeWorkoutWindows.slice(0, 2);
+
+        return (
+          <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
+            <CardHeader className="pb-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <DumbbellIcon className="size-4 text-domain-health" />
+                  <CardTitle className="text-base font-semibold tracking-tight">
+                    Окно тренировки
+                  </CardTitle>
+                </div>
+                <Badge variant="secondary" className="num-tabular">
+                  {plannedWindows.length > 0
+                    ? `В плане: ${plannedWindows.length}`
+                    : "Ритм закрыт"}
+                </Badge>
+              </div>
+              <CardDescription>
+                Плавающие окна недели без жёсткой привязки к минутам
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="flex flex-col gap-2">
+              {displayWindows.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  Ближайших окон тренировок нет — разложи программу на неделю в разделе «Здоровье».
+                </div>
+              ) : (
+                displayWindows.map((ws) => {
+                  const isDone = ws.status === "completed";
+                  const inWindowToday =
+                    ws.status === "planned" &&
+                    ws.window_start_date <= todayDate &&
+                    ws.window_end_date >= todayDate;
+                  const winLabel =
+                    ws.window_start_date === ws.window_end_date
+                      ? formatDateShortRu(ws.window_start_date)
+                      : `${formatDateShortRu(ws.window_start_date)} — ${formatDateShortRu(ws.window_end_date)}`;
+
+                  return (
+                    <div
+                      key={ws.id}
+                      className="flex items-center justify-between gap-2.5 rounded-xl border border-border/80 bg-background/55 px-3 py-2.5"
+                    >
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {inWindowToday ? (
+                            <Badge className="text-[11px]">Окно сегодня</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[11px] num-tabular">
+                              {winLabel}
+                            </Badge>
+                          )}
+                          <span className="text-xs text-muted-foreground">
+                            {WORKOUT_SLOT_LABELS[
+                              ws.preferred_slot as WorkoutPreferredSlot
+                            ] ?? ws.preferred_slot}
+                          </span>
+                        </div>
+                        <span
+                          className={cn(
+                            "truncate text-sm font-medium",
+                            isDone && "line-through text-muted-foreground"
+                          )}
+                        >
+                          {ws.title}
+                        </span>
+                      </div>
+
+                      {!isDone ? (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="secondary"
+                          onClick={() =>
+                            startTransition(async () => {
+                              try {
+                                await completeWorkoutSessionAction({
+                                  id: ws.id,
+                                  durationMinutes: ws.duration_minutes ?? 60,
+                                  perceivedEffort: 7,
+                                });
+                                toast.success("Тренировка отмечена выполненной");
+                              } catch {
+                                toast.error("Не удалось завершить тренировку");
+                              }
+                            })
+                          }
+                          className="min-h-8 shrink-0 rounded-lg"
+                        >
+                          <CheckCircle2Icon data-icon="inline-start" />
+                          Выполнено
+                        </Button>
+                      ) : (
+                        <Badge variant="secondary">Готово</Badge>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+
+            <CardFooter className="flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+              <span>Программа и медкарта</span>
+              <Link
+                href="/health"
+                className="shrink-0 font-medium text-foreground hover:text-primary"
+              >
+                Открыть здоровье
               </Link>
             </CardFooter>
           </Card>

@@ -83,7 +83,11 @@ export type ReminderEntityType =
   | "evening_review"
   | "finance_obligation"
   | "credit_grace"
-  | "debt_due";
+  | "debt_due"
+  | "medical_followup"
+  | "medical_visit"
+  | "workout_window"
+  | "pantry_expiry";
 export type ReminderStatus = "pending" | "sent" | "cancelled" | "failed";
 
 export type DayPlan = Tables<"day_plans">;
@@ -187,7 +191,7 @@ export interface FinanceCategoryAnalyticsItem {
 }
 
 export interface FinanceMonthlyAnalytics {
-  month: string; // YYYY-MM
+  month: string;
   startDate: string;
   endDate: string;
   personal_expense_total: number;
@@ -200,16 +204,116 @@ export interface FinanceMonthlyAnalytics {
   by_category: FinanceCategoryAnalyticsItem[];
 }
 
-export type WorkoutProgram = Tables<"workout_programs">;
-export type WorkoutSession = Tables<"workout_sessions">;
-export type MedicalDoctor = Tables<"medical_doctors">;
-export type MedicalRecord = Tables<"medical_records">;
+// ============================================================================
+// Stage 3 — Nutrition & Health Types
+// ============================================================================
+
+export type IngredientUnit = "g" | "kg" | "ml" | "l" | "pcs" | "tbsp" | "tsp" | "pack";
+export type MealCategory = "breakfast" | "lunch" | "dinner" | "snack" | "batch_prep";
+export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack" | "cook_ahead";
+export type MealPlanStatus = "planned" | "cooked" | "eaten" | "skipped";
+export type ShoppingAddedFrom = "meal_plan" | "manual" | "telegram" | "mcp" | "openclaw";
 
 export type Recipe = Tables<"recipes">;
+export type RecipeInsert = TablesInsert<"recipes">;
+export type RecipeUpdate = TablesUpdate<"recipes">;
+
 export type RecipeIngredient = Tables<"recipe_ingredients">;
+export type RecipeIngredientInsert = TablesInsert<"recipe_ingredients">;
+export type RecipeIngredientUpdate = TablesUpdate<"recipe_ingredients">;
+
+export interface RecipeWithIngredients extends Recipe {
+  ingredients: RecipeIngredient[];
+}
+
 export type MealPlanEntry = Tables<"meal_plan_entries">;
+export type MealPlanEntryInsert = TablesInsert<"meal_plan_entries">;
+export type MealPlanEntryUpdate = TablesUpdate<"meal_plan_entries">;
+
+export interface MealPlanEntryWithRecipe extends MealPlanEntry {
+  recipe: RecipeWithIngredients | null;
+}
+
 export type PantryItem = Tables<"pantry_items">;
+export type PantryItemInsert = TablesInsert<"pantry_items">;
+export type PantryItemUpdate = TablesUpdate<"pantry_items">;
+
 export type ShoppingListItem = Tables<"shopping_list_items">;
+export type ShoppingListItemInsert = TablesInsert<"shopping_list_items">;
+export type ShoppingListItemUpdate = TablesUpdate<"shopping_list_items">;
+
+export type MealPlanMissingIngredient =
+  Database["public"]["Views"]["v_meal_plan_missing_ingredients"]["Row"];
+
+export type OffProductEvaluation = Tables<"off_product_evaluations">;
+export type OffProductEvaluationInsert = TablesInsert<"off_product_evaluations">;
+
+export type CalorieLog = Tables<"calorie_logs">;
+export type CalorieLogInsert = TablesInsert<"calorie_logs">;
+export type CalorieLogUpdate = TablesUpdate<"calorie_logs">;
+
+export interface OffParsedProduct {
+  barcode: string;
+  found: boolean;
+  product_name: string | null;
+  brands: string | null;
+  quantity: string | null;
+  has_complete_macros: boolean;
+  kcal_100g: number | null;
+  protein_100g: number | null;
+  fat_100g: number | null;
+  carbs_100g: number | null;
+  raw: Record<string, unknown> | null;
+}
+
+export interface OffCompletenessStats {
+  total_tested: number;
+  found_count: number;
+  complete_macros_count: number;
+  found_rate_percent: number;
+  complete_macros_rate_percent: number;
+  recommendation: "recommended" | "partial" | "insufficient_data";
+}
+
+export type WorkoutPreferredSlot = "morning" | "afternoon" | "evening" | "flexible";
+export type WorkoutSessionStatus = "planned" | "completed" | "skipped";
+
+export interface WorkoutProgramDayTemplate {
+  day_code: string;
+  title: string;
+  exercises: string[];
+}
+
+export type WorkoutProgram = Tables<"workout_programs">;
+export type WorkoutProgramInsert = TablesInsert<"workout_programs">;
+export type WorkoutProgramUpdate = TablesUpdate<"workout_programs">;
+
+export type WorkoutSession = Tables<"workout_sessions">;
+export type WorkoutSessionInsert = TablesInsert<"workout_sessions">;
+export type WorkoutSessionUpdate = TablesUpdate<"workout_sessions">;
+
+export type MedicalRecordKind = "visit" | "lab_panel" | "imaging" | "checkup" | "other";
+
+export type MedicalDoctor = Tables<"medical_doctors">;
+export type MedicalDoctorInsert = TablesInsert<"medical_doctors">;
+export type MedicalDoctorUpdate = TablesUpdate<"medical_doctors">;
+
+export type MedicalRecord = Tables<"medical_records">;
+export type MedicalRecordInsert = TablesInsert<"medical_records">;
+export type MedicalRecordUpdate = TablesUpdate<"medical_records">;
+
+export type MedicalFollowUp = Tables<"medical_follow_ups">;
+export type MedicalFollowUpInsert = TablesInsert<"medical_follow_ups">;
+export type MedicalFollowUpUpdate = TablesUpdate<"medical_follow_ups">;
+
+export type MedicalDocument = Tables<"medical_documents">;
+export type MedicalDocumentInsert = TablesInsert<"medical_documents">;
+
+export interface MedicalRecordFull extends MedicalRecord {
+  doctor: MedicalDoctor | null;
+  followUps: MedicalFollowUp[];
+  documents: MedicalDocument[];
+}
 
 export type Habit = Tables<"habits">;
 export type HabitLog = Tables<"habit_logs">;

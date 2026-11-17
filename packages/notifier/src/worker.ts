@@ -6,11 +6,27 @@ import {
   markReminderFailed,
   markTaskReminderSent,
   resolveDefaultTelegramChatId,
+  type ReminderEntityType,
   type ReminderQueueItem,
   type TypedSupabaseClient,
 } from "@life-os/db";
 import { DigestCheckController } from "./digests";
 import { sendTelegramPush } from "./telegram-push";
+
+export const SUPPORTED_QUEUE_ENTITY_TYPES: readonly ReminderEntityType[] = [
+  "task_start",
+  "waiting_followup",
+  "standalone_reminder",
+  "morning_digest",
+  "evening_review",
+  "finance_obligation",
+  "credit_grace",
+  "debt_due",
+  "medical_followup",
+  "medical_visit",
+  "workout_window",
+  "pantry_expiry",
+] as const;
 
 const HORIZON_MS = 65 * 60_000; // Arm exact setTimeout timers up to 65 minutes ahead
 const STALE_CUTOFF_MS = 24 * 60 * 60_000; // Auto-cancel missed reminders older than 24h

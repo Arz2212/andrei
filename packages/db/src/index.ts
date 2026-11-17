@@ -5,3 +5,5 @@ export * from "./clients";
 export * from "./reminders";
 export * from "./repositories";
 export * from "./finance";
+export * from "./nutrition";
+export * from "./health";

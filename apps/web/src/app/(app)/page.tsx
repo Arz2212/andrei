@@ -39,6 +39,9 @@ export default async function HomePage() {
       financeAccounts={financeAccounts}
       financeCategories={financeCategories}
       financeObligations={financeObligations}
+      todayMeals={overview.todayMeals}
+      uncheckedShoppingItems={overview.uncheckedShoppingItems}
+      activeWorkoutWindows={overview.activeWorkoutWindows}
     />
   );
 }

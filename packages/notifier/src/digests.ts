@@ -15,8 +15,10 @@ import {
   resolveDefaultTelegramChatId,
   type AssistantSettings,
   type DaySlot,
+  type MealSlot,
   type Task,
   type TypedSupabaseClient,
+  type WorkoutPreferredSlot,
 } from "@life-os/db";
 import { sendTelegramPush } from "./telegram-push";
 
@@ -25,6 +27,29 @@ const SLOT_LABELS: Record<DaySlot, string> = {
   afternoon: "🌤 День",
   evening: "🌙 Вечер",
   any: "📌 Гибко",
+};
+
+const WORKOUT_SLOT_LABELS: Record<WorkoutPreferredSlot, string> = {
+  morning: "утро",
+  afternoon: "день",
+  evening: "вечер",
+  flexible: "гибкое окно",
+};
+
+const MEAL_SLOT_LABELS: Record<MealSlot, string> = {
+  breakfast: "Завтрак",
+  lunch: "Обед",
+  dinner: "Ужин",
+  snack: "Перекус",
+  cook_ahead: "Заготовка",
+};
+
+const MEAL_SLOT_ORDER: Record<MealSlot, number> = {
+  breakfast: 1,
+  lunch: 2,
+  snack: 3,
+  dinner: 4,
+  cook_ahead: 5,
 };
 
 function parseHhMmToMinutes(hhmm: string | null | undefined): number | null {
@@ -47,6 +72,12 @@ function formatRussianDayHeader(dateStr: string, timeZone: string): string {
     day: "numeric",
     month: "long",
   }).format(anchor);
+}
+
+function formatShortDayMonth(dateStr: string): string {
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}.${parts[1]}`;
 }
 
 function formatDurationCompact(minutes: number): string {
@@ -146,7 +177,54 @@ export async function buildMorningDigestHtml(
     );
   }
 
-  // Finance deadlines due today or tomorrow (mandatory bills, subscriptions, credit grace, debts)
+  // Stage 3: Today's floating workout windows & planned meals
+  const todayWorkouts = (overview.activeWorkoutWindows ?? []).filter(
+    (w) =>
+      w.status === "planned" &&
+      (w.planned_date === todayDate ||
+        (w.window_start_date <= todayDate && w.window_end_date >= todayDate))
+  );
+
+  if (todayWorkouts.length > 0) {
+    const workoutParts = todayWorkouts.slice(0, 2).map((w) => {
+      const slotHint =
+        WORKOUT_SLOT_LABELS[(w.preferred_slot as WorkoutPreferredSlot) || "flexible"] ??
+        "гибкое окно";
+      const windowHint =
+        w.window_end_date > todayDate
+          ? `, окно до ${formatShortDayMonth(w.window_end_date)}`
+          : w.window_end_date === todayDate && w.window_start_date < todayDate
+            ? ", крайний день окна"
+            : "";
+      return `<b>${escapeTelegramHtml(w.title)}</b> <i>(${slotHint}${windowHint})</i>`;
+    });
+    lines.push(`\n🏋️ Тренировка: ${workoutParts.join(" · ")}`);
+  }
+
+  const activeMeals = [...(overview.todayMeals ?? [])]
+    .filter((m) => m.status !== "skipped")
+    .sort(
+      (a, b) =>
+        (MEAL_SLOT_ORDER[(a.meal_slot as MealSlot) || "dinner"] ?? 9) -
+        (MEAL_SLOT_ORDER[(b.meal_slot as MealSlot) || "dinner"] ?? 9)
+    );
+
+  if (activeMeals.length > 0 || (overview.uncheckedShoppingItems?.length ?? 0) > 0) {
+    const mealSnippets = activeMeals.slice(0, 4).map((m) => {
+      const slotName = MEAL_SLOT_LABELS[(m.meal_slot as MealSlot) || "dinner"] ?? m.meal_slot;
+      const title = m.recipe?.title || m.custom_meal_title || "Блюдо";
+      return `${slotName}: <b>${escapeTelegramHtml(title)}</b>`;
+    });
+    const shoppingCount = overview.uncheckedShoppingItems?.length ?? 0;
+    const shoppingTail = shoppingCount > 0 ? ` · 🛒 купить: <b>${shoppingCount}</b>` : "";
+    if (mealSnippets.length > 0) {
+      lines.push(`\n🍽 Меню: ${mealSnippets.join(" · ")}${shoppingTail}`);
+    } else if (shoppingCount > 0) {
+      lines.push(`\n🛒 Список покупок: <b>${shoppingCount} поз.</b>`);
+    }
+  }
+
+  // Stage 2: Finance deadlines due today or tomorrow (mandatory bills, subscriptions, credit grace, debts)
   const financeAlertLines: string[] = [];
 
   for (const ob of obligations) {
