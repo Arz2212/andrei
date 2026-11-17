@@ -238,10 +238,10 @@ export function WeekCalendarGrid({
         </div>
       </div>
 
-      {/* Single-Page Time-Block Calendar Grid (horizontal scroll ONLY; zero nested vertical scroll!) */}
+      {/* Single-Page Time-Block Calendar Grid (horizontal scroll + native 2D touch scrolling; isolated stacking context!) */}
       <div
         ref={scrollContainerRef}
-        className="overflow-x-auto rounded-2xl border border-border/80 bg-card touch-pan-x"
+        className="isolate overflow-x-auto rounded-2xl border border-border/80 bg-card touch-manipulation"
       >
         <div className={minWidthClass}>
           {/* Day Headers Row */}
@@ -251,7 +251,7 @@ export function WeekCalendarGrid({
               gridColsClass
             )}
           >
-            <div className="sticky left-0 z-30 flex items-center justify-center border-r border-border bg-card px-1 py-2 text-[10px] font-medium text-muted-foreground">
+            <div className="sticky left-0 z-20 flex items-center justify-center border-r border-border bg-card px-1 py-2 text-[10px] font-medium text-muted-foreground">
               МСК
             </div>
             {visibleDates.map((isoDate) => {
@@ -299,7 +299,7 @@ export function WeekCalendarGrid({
               gridColsClass
             )}
           >
-            <div className="sticky left-0 z-30 flex items-center justify-center border-r border-border bg-card px-0.5 py-2 text-[9.5px] font-medium text-muted-foreground">
+            <div className="sticky left-0 z-20 flex items-center justify-center border-r border-border bg-card px-0.5 py-2 text-[9.5px] font-medium text-muted-foreground">
               Слоты
             </div>
             {visibleDates.map((isoDate) => {
@@ -370,8 +370,8 @@ export function WeekCalendarGrid({
             className={cn("grid", gridColsClass)}
             style={{ height: `${hours.length * HOUR_HEIGHT_PX}px` }}
           >
-            {/* Pinned Sticky Left Hour Scale (`sticky left-0 z-30 bg-card`) */}
-            <div className="sticky left-0 z-30 flex flex-col border-r border-border bg-card">
+            {/* Pinned Sticky Left Hour Scale (`sticky left-0 z-20 bg-card` inside `isolate`) */}
+            <div className="sticky left-0 z-20 flex flex-col border-r border-border bg-card">
               {hours.map((hr) => (
                 <div
                   key={hr}

@@ -188,7 +188,7 @@ export function AppShell({
       {/* Desktop Sidebar (>= 1024px) */}
       <aside
         className={cn(
-          "hidden lg:sticky lg:top-0 lg:flex lg:h-dvh shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
+          "hidden lg:sticky lg:top-0 lg:z-40 lg:flex lg:h-dvh shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
           collapsed ? "w-[68px]" : "w-[252px]"
         )}
       >
@@ -451,7 +451,7 @@ export function AppShell({
       {/* Main Content Area */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-md safe-top">
+        <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-md safe-top">
           <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-2 px-4 lg:h-16 lg:px-8">
             <div className="flex min-w-0 items-center gap-2.5">
               <Link href="/" className="lg:hidden">
@@ -527,7 +527,7 @@ export function AppShell({
         </header>
 
         {/* Page Container */}
-        <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:px-8 lg:py-7">
+        <main className="relative z-0 isolate mx-auto w-full max-w-[1440px] flex-1 px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:px-8 lg:py-7">
           {children}
         </main>
       </div>
