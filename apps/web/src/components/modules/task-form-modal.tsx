@@ -168,6 +168,7 @@ export function TaskFormModal({
           task.scheduled_start_at,
           "Europe/Moscow"
         );
+        setPlannedDate(parts.dateStr);
         setScheduledTime(parts.timeStr);
         if (
           task.reminder_sent_at === REMINDER_DISABLED_SENTINEL ||

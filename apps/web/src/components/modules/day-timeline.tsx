@@ -48,9 +48,22 @@ export interface PositionedBlock {
   totalCols: number;
 }
 
-export function computePositionedBlocks(tasks: Task[]): PositionedBlock[] {
+export function getEffectiveTaskDate(task: Task): string | null {
+  return task.scheduled_start_at
+    ? extractLocalTimeParts(task.scheduled_start_at, "Europe/Moscow").dateStr
+    : task.planned_date;
+}
+
+export function computePositionedBlocks(
+  tasks: Task[],
+  targetDate?: string
+): PositionedBlock[] {
   const raw = tasks
-    .filter((t) => Boolean(t.scheduled_start_at))
+    .filter(
+      (t) =>
+        Boolean(t.scheduled_start_at) &&
+        (!targetDate || getEffectiveTaskDate(t) === targetDate)
+    )
     .map((task) => {
       const startParts = extractLocalTimeParts(
         task.scheduled_start_at!,
@@ -167,8 +180,14 @@ export function DayTimeline({
   }, []);
 
   const dayTasks = React.useMemo(
-    () => tasks.filter((t) => t.status !== "cancelled" && t.status !== "waiting"),
-    [tasks]
+    () =>
+      tasks.filter(
+        (t) =>
+          t.status !== "cancelled" &&
+          t.status !== "waiting" &&
+          getEffectiveTaskDate(t) === selectedDate
+      ),
+    [tasks, selectedDate]
   );
 
   const timedTasks = React.useMemo(
@@ -182,8 +201,8 @@ export function DayTimeline({
   );
 
   const positioned = React.useMemo(
-    () => computePositionedBlocks(timedTasks),
-    [timedTasks]
+    () => computePositionedBlocks(timedTasks, selectedDate),
+    [timedTasks, selectedDate]
   );
 
   const { startHour, endHour } = React.useMemo(() => {

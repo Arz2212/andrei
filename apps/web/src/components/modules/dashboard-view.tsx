@@ -94,7 +94,10 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ResponsiveModal } from "@/components/shell/responsive-modal";
 import { TaskFormModal } from "@/components/modules/task-form-modal";
 import { TransactionFormModal } from "@/components/modules/finance-modals";
-import { DayTimeline } from "@/components/modules/day-timeline";
+import {
+  DayTimeline,
+  getEffectiveTaskDate,
+} from "@/components/modules/day-timeline";
 
 const WIDGET_LABELS: Record<WidgetKey, string> = {
   now_focus: "Главный фокус дня",
@@ -441,11 +444,21 @@ export function DashboardView({
     setWidgetDraft(initialOrderedWidgets);
   }, [initialOrderedWidgets]);
 
-  // Compact time metrics (no progress bar!)
-  const activeTodayTasks = optimisticTasks.filter(
-    (t) => t.status !== "done" && t.status !== "cancelled"
+  // Strict effective-date guard for today's tasks (matches Week Calendar Grid!)
+  const todayScopedTasks = React.useMemo(
+    () =>
+      optimisticTasks.filter(
+        (t) =>
+          t.status !== "cancelled" &&
+          t.status !== "waiting" &&
+          getEffectiveTaskDate(t) === todayDate
+      ),
+    [optimisticTasks, todayDate]
   );
-  const doneTodayCount = optimisticTasks.filter((t) => t.status === "done").length;
+
+  // Compact time metrics (no progress bar!)
+  const activeTodayTasks = todayScopedTasks.filter((t) => t.status !== "done");
+  const doneTodayCount = todayScopedTasks.filter((t) => t.status === "done").length;
   const scheduledMinutes = activeTodayTasks.reduce(
     (sum, t) => sum + (t.estimated_minutes ?? 30),
     0
@@ -668,7 +681,7 @@ export function DashboardView({
 
             <CardFooter className="justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground">
               <span className="num-tabular">
-                Закрыто сегодня: {doneTodayCount} из {optimisticTasks.length}
+                Закрыто сегодня: {doneTodayCount} из {todayScopedTasks.length}
               </span>
               <Link
                 href="/tasks"
@@ -682,8 +695,11 @@ export function DashboardView({
       }
 
       case "day_timeline": {
-        const displayTasks =
-          timelineDate === todayDate ? optimisticTasks : otherDayTasks;
+        const rawTimelineTasks =
+          timelineDate === todayDate ? todayScopedTasks : otherDayTasks;
+        const displayTasks = rawTimelineTasks.filter(
+          (t) => getEffectiveTaskDate(t) === timelineDate
+        );
         const displayBuf =
           timelineDate === todayDate
             ? bufferMins
@@ -723,7 +739,9 @@ export function DashboardView({
                 onToggleTask={handleToggleTask}
                 onEditTask={(t) => {
                   setEditingTask(t);
-                  setModalPlannedDate(t.planned_date ?? timelineDate);
+                  setModalPlannedDate(
+                    getEffectiveTaskDate(t) ?? timelineDate
+                  );
                   setModalScheduledTime(null);
                   setTaskModalOpen(true);
                 }}
@@ -980,13 +998,13 @@ export function DashboardView({
             </CardHeader>
 
             <CardContent className="flex flex-col gap-4">
-              {optimisticTasks.length === 0 ? (
+              {todayScopedTasks.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
                   На сегодня задач пока нет. Нажми «Задача» или надиктуй план голосом в Telegram.
                 </div>
               ) : (
                 groups.map((grp) => {
-                  const items = optimisticTasks
+                  const items = todayScopedTasks
                     .filter((t) => t.day_slot === grp.key)
                     .sort((a, b) => {
                       if (a.scheduled_start_at && b.scheduled_start_at) {
@@ -1050,7 +1068,7 @@ export function DashboardView({
                                 onClick={() => {
                                   setEditingTask(task);
                                   setModalPlannedDate(
-                                    task.planned_date ?? todayDate
+                                    getEffectiveTaskDate(task) ?? todayDate
                                   );
                                   setModalScheduledTime(null);
                                   setTaskModalOpen(true);

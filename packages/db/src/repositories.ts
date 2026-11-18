@@ -674,6 +674,7 @@ export async function listTasksInDateRange(
     .from("tasks")
     .select("*")
     .neq("status", "cancelled")
+    .is("scheduled_start_at", null)
     .gte("planned_date", params.startDate)
     .lte("planned_date", params.endDate);
 
@@ -710,12 +711,12 @@ export async function listTasksInDateRange(
   }
 
   return Array.from(byId.values()).sort((a, b) => {
-    const dateA =
-      a.planned_date ??
-      (a.scheduled_start_at ? extractLocalTimeParts(a.scheduled_start_at, tz).dateStr : "9999-99-99");
-    const dateB =
-      b.planned_date ??
-      (b.scheduled_start_at ? extractLocalTimeParts(b.scheduled_start_at, tz).dateStr : "9999-99-99");
+    const dateA = a.scheduled_start_at
+      ? extractLocalTimeParts(a.scheduled_start_at, tz).dateStr
+      : (a.planned_date ?? "9999-99-99");
+    const dateB = b.scheduled_start_at
+      ? extractLocalTimeParts(b.scheduled_start_at, tz).dateStr
+      : (b.planned_date ?? "9999-99-99");
     if (dateA !== dateB) return dateA.localeCompare(dateB);
     if (a.scheduled_start_at && b.scheduled_start_at) {
       return Date.parse(a.scheduled_start_at) - Date.parse(b.scheduled_start_at);
@@ -744,7 +745,8 @@ function enrichScheduleFieldsOnInsert(
   const next: TaskInsert = { ...input };
   if (next.scheduled_start_at) {
     const localStart = extractLocalTimeParts(next.scheduled_start_at, timeZone);
-    next.planned_date = next.planned_date ?? localStart.dateStr;
+    // Authoritative invariant: planned_date of a timed task/meeting ALWAYS equals its local start date
+    next.planned_date = localStart.dateStr;
     if (!next.day_slot || next.day_slot === "any") {
       next.day_slot = localStart.daySlot;
     }
@@ -794,9 +796,8 @@ function enrichScheduleFieldsOnUpdate(
     next.reminder_snoozed_until = null;
   } else if (typeof next.scheduled_start_at === "string") {
     const localStart = extractLocalTimeParts(next.scheduled_start_at, timeZone);
-    if (next.planned_date === undefined) {
-      next.planned_date = localStart.dateStr;
-    }
+    // Authoritative invariant: planned_date of a timed task/meeting ALWAYS equals its local start date
+    next.planned_date = localStart.dateStr;
     if (next.day_slot === undefined || next.day_slot === "any") {
       next.day_slot = localStart.daySlot;
     }
@@ -879,7 +880,59 @@ export async function updateTask(
   patch: TaskUpdate,
   timeZone = "Europe/Moscow"
 ): Promise<Task> {
-  const prepared = enrichScheduleFieldsOnUpdate(patch, timeZone);
+  let effectivePatch: TaskUpdate = { ...patch };
+
+  // If moving an existing timed task/meeting to a new planned_date without passing scheduled_start_at,
+  // shift scheduled_start_at & scheduled_end_at to the new planned_date at the same local clock time!
+  if (
+    typeof effectivePatch.planned_date === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(effectivePatch.planned_date) &&
+    effectivePatch.scheduled_start_at === undefined
+  ) {
+    const { data: existing, error: selErr } = await db
+      .from("tasks")
+      .select("scheduled_start_at, scheduled_end_at, estimated_minutes, is_meeting")
+      .eq("id", id)
+      .maybeSingle();
+    if (selErr) throw selErr;
+
+    if (existing?.scheduled_start_at) {
+      const oldLocal = extractLocalTimeParts(existing.scheduled_start_at, timeZone);
+      if (oldLocal.dateStr !== effectivePatch.planned_date) {
+        const oldStartMs = Date.parse(existing.scheduled_start_at);
+        const oldEndMs = existing.scheduled_end_at
+          ? Date.parse(existing.scheduled_end_at)
+          : NaN;
+        const durationMs =
+          !Number.isNaN(oldEndMs) && oldEndMs > oldStartMs
+            ? oldEndMs - oldStartMs
+            : (existing.estimated_minutes ?? (existing.is_meeting ? 60 : 30)) * 60_000;
+
+        const newStartIso = localClockToUtcIso(
+          effectivePatch.planned_date,
+          oldLocal.timeStr,
+          timeZone
+        );
+        const newEndIso = new Date(Date.parse(newStartIso) + durationMs).toISOString();
+        effectivePatch = {
+          ...effectivePatch,
+          scheduled_start_at: newStartIso,
+          scheduled_end_at: effectivePatch.scheduled_end_at ?? newEndIso,
+        };
+      }
+    }
+  } else if (
+    effectivePatch.planned_date === null &&
+    effectivePatch.status === "inbox" &&
+    effectivePatch.scheduled_start_at === undefined
+  ) {
+    effectivePatch = {
+      ...effectivePatch,
+      scheduled_start_at: null,
+    };
+  }
+
+  const prepared = enrichScheduleFieldsOnUpdate(effectivePatch, timeZone);
   const { data, error } = await db
     .from("tasks")
     .update(prepared)

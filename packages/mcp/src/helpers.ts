@@ -283,7 +283,8 @@ export function resolveScheduleInputs(params: {
   }
 
   const rawStart = params.startsAt.trim();
-  const clockRegex = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+  const clockRegex = /^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
+  const dateClockRegex = /^(\d{4}-\d{2}-\d{2})[T\s]+([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
   const startClockMatch = clockRegex.exec(rawStart);
 
   if (startClockMatch) {
@@ -309,7 +310,16 @@ export function resolveScheduleInputs(params: {
     });
 
     if (params.endsAt && !endClock) {
-      const parsedEnd = Date.parse(params.endsAt);
+      const endRaw = params.endsAt.trim();
+      const endDtMatch = dateClockRegex.exec(endRaw);
+      const parsedEndIso = endDtMatch
+        ? localClockToUtcIso(
+            endDtMatch[1],
+            `${endDtMatch[2].padStart(2, "0")}:${endDtMatch[3]}`,
+            tz
+          )
+        : endRaw;
+      const parsedEnd = Date.parse(parsedEndIso);
       if (!Number.isNaN(parsedEnd) && parsedEnd > Date.parse(built.scheduled_start_at)) {
         built.scheduled_end_at = new Date(parsedEnd).toISOString();
         built.estimated_minutes = Math.max(
@@ -328,8 +338,8 @@ export function resolveScheduleInputs(params: {
     };
   }
 
-  // Otherwise treat `startsAt` as ISO or `YYYY-MM-DD HH:MM`
-  const dateClockMatch = /^(\d{4}-\d{2}-\d{2})[T\s]+([01]?\d|2[0-3]):([0-5]\d)$/.exec(rawStart);
+  // Otherwise treat `startsAt` as ISO (with offset/Z) or naive `YYYY-MM-DD[T ]HH:MM(:SS)` in `Europe/Moscow`
+  const dateClockMatch = dateClockRegex.exec(rawStart);
   const startIso = dateClockMatch
     ? localClockToUtcIso(
         dateClockMatch[1],
@@ -348,7 +358,9 @@ export function resolveScheduleInputs(params: {
   let endIso: string;
 
   if (params.endsAt) {
-    const endClockMatch = clockRegex.exec(params.endsAt.trim());
+    const endTrimmed = params.endsAt.trim();
+    const endClockMatch = clockRegex.exec(endTrimmed);
+    const endDateClockMatch = dateClockRegex.exec(endTrimmed);
     if (endClockMatch) {
       endIso = localClockToUtcIso(
         localStart.dateStr,
@@ -358,8 +370,14 @@ export function resolveScheduleInputs(params: {
       if (Date.parse(endIso) <= Date.parse(startIso)) {
         endIso = new Date(Date.parse(endIso) + 24 * 60 * 60_000).toISOString();
       }
+    } else if (endDateClockMatch) {
+      endIso = localClockToUtcIso(
+        endDateClockMatch[1],
+        `${endDateClockMatch[2].padStart(2, "0")}:${endDateClockMatch[3]}`,
+        tz
+      );
     } else {
-      endIso = new Date(params.endsAt).toISOString();
+      endIso = new Date(endTrimmed).toISOString();
     }
     durationMins = Math.max(
       5,
@@ -369,8 +387,9 @@ export function resolveScheduleInputs(params: {
     endIso = new Date(Date.parse(startIso) + Math.max(5, durationMins) * 60_000).toISOString();
   }
 
+  // Authoritative rule: whenever `startsAt` contains an explicit date, `localStart.dateStr` in `Europe/Moscow` IS `planned_date`!
   return {
-    planned_date: resolvedDate ?? localStart.dateStr,
+    planned_date: localStart.dateStr,
     scheduled_start_at: startIso,
     scheduled_end_at: endIso,
     day_slot: localStart.daySlot,
@@ -392,7 +411,7 @@ export function resolveFollowUpTimestamp(
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     return localClockToUtcIso(trimmed, "10:00", timeZone);
   }
-  const dtMatch = /^(\d{4}-\d{2}-\d{2})[T\s]+([01]?\d|2[0-3]):([0-5]\d)$/.exec(trimmed);
+  const dtMatch = /^(\d{4}-\d{2}-\d{2})[T\s]+([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/.exec(trimmed);
   if (dtMatch) {
     return localClockToUtcIso(
       dtMatch[1],

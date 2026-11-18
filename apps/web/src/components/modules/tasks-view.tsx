@@ -116,14 +116,14 @@ function sortTasksChronologically(items: Task[]): Task[] {
   });
 }
 
+function getEffectiveTaskDate(task: Task): string | null {
+  return task.scheduled_start_at
+    ? extractLocalTimeParts(task.scheduled_start_at, "Europe/Moscow").dateStr
+    : task.planned_date;
+}
+
 function taskBelongsToDate(task: Task, dateIso: string): boolean {
-  if (task.scheduled_start_at) {
-    return (
-      extractLocalTimeParts(task.scheduled_start_at, "Europe/Moscow")
-        .dateStr === dateIso
-    );
-  }
-  return task.planned_date === dateIso;
+  return getEffectiveTaskDate(task) === dateIso;
 }
 
 interface TasksViewProps {
@@ -387,6 +387,7 @@ export function TasksView({
     const isDone = task.status === "done";
     const project = task.project_id ? projectMap.get(task.project_id) : null;
     const linkedGoal = task.goal_id ? goalMap.get(task.goal_id) : null;
+    const effectiveDate = getEffectiveTaskDate(task);
     const slotInfo =
       SLOT_META[(task.day_slot as DaySlot) ?? "any"] ?? SLOT_META.any;
     const timeRange = formatTaskTimeRange(task, "Europe/Moscow");
@@ -427,7 +428,7 @@ export function TasksView({
           type="button"
           onClick={() => {
             setEditingTask(task);
-            setModalDefaultDate(task.planned_date);
+            setModalDefaultDate(effectiveDate);
             setModalDefaultTime(null);
             setModalDefaultProjectId(task.project_id);
             setTaskModalOpen(true);
@@ -493,12 +494,12 @@ export function TasksView({
         </button>
 
         <div className="flex shrink-0 items-center gap-1">
-          {showDateBadge && task.planned_date ? (
+          {showDateBadge && effectiveDate ? (
             <Badge
               variant="outline"
               className="hidden sm:inline-flex num-tabular"
             >
-              {formatDateShortRu(task.planned_date)}
+              {formatDateShortRu(effectiveDate)}
             </Badge>
           ) : null}
           {task.estimated_minutes ? (
@@ -513,7 +514,7 @@ export function TasksView({
             size="icon-sm"
             onClick={() => {
               setEditingTask(task);
-              setModalDefaultDate(task.planned_date);
+              setModalDefaultDate(effectiveDate);
               setModalDefaultTime(null);
               setModalDefaultProjectId(task.project_id);
               setTaskModalOpen(true);
@@ -707,7 +708,7 @@ export function TasksView({
             onToggleTask={handleToggle}
             onEditTask={(t) => {
               setEditingTask(t);
-              setModalDefaultDate(t.planned_date);
+              setModalDefaultDate(getEffectiveTaskDate(t));
               setModalDefaultTime(null);
               setModalDefaultProjectId(t.project_id);
               setTaskModalOpen(true);

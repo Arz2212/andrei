@@ -531,7 +531,7 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
       description:
         "Проверяет, свободно ли указанное время (Europe/Moscow), возвращает пересекающиеся встречи и список свободных окон дня.",
       inputSchema: {
-        date: z.string().describe("Дата YYYY-MM-DD или today/tomorrow"),
+        date: z.string().optional().describe("Дата YYYY-MM-DD или today/tomorrow (по умолчанию берётся из starts_at или сегодня по МСК)"),
         starts_at: z.string().describe("Время начала ЧЧ:ММ по МСК (например, 14:00) или ISO"),
         ends_at: z.string().optional().describe("Время окончания ЧЧ:ММ по МСК или ISO"),
         duration_minutes: z
@@ -739,7 +739,9 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
             ? null
             : args.date !== undefined
               ? args.date
-              : formatIsoDate();
+              : args.starts_at
+                ? undefined
+                : formatIsoDate();
 
         const sched = resolveScheduleInputs({
           plannedDate: defaultDate,
@@ -1087,8 +1089,21 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
 
         // Date & exact time rescheduling
         const effectiveIsMeeting = args.is_meeting ?? current.is_meeting;
+        const existingDurationFromRange =
+          current.scheduled_start_at && current.scheduled_end_at
+            ? Math.max(
+                5,
+                Math.round(
+                  (Date.parse(current.scheduled_end_at) -
+                    Date.parse(current.scheduled_start_at)) /
+                    60_000
+                )
+              )
+            : null;
         const effectiveDuration =
-          args.duration_minutes !== undefined ? args.duration_minutes : current.estimated_minutes;
+          args.duration_minutes !== undefined
+            ? args.duration_minutes
+            : current.estimated_minutes ?? existingDurationFromRange;
 
         if (args.clear_exact_time || args.starts_at === null) {
           patch.scheduled_start_at = null;
@@ -1096,14 +1111,25 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           if (args.date !== undefined) {
             patch.planned_date = resolveDateInput(args.date);
           }
-        } else if (args.starts_at !== undefined || args.ends_at !== undefined || args.date !== undefined) {
-          const nextDateStr =
+        } else if (args.date === null && args.starts_at === undefined) {
+          patch.planned_date = null;
+          patch.scheduled_start_at = null;
+          patch.scheduled_end_at = null;
+        } else if (
+          args.starts_at !== undefined ||
+          args.ends_at !== undefined ||
+          args.date !== undefined
+        ) {
+          const currentMskDate = current.scheduled_start_at
+            ? extractLocalTimeParts(current.scheduled_start_at, DEFAULT_TIMEZONE).dateStr
+            : current.planned_date;
+
+          const baseDateStr =
             args.date !== undefined
               ? resolveDateInput(args.date)
-              : current.planned_date ??
-                (current.scheduled_start_at
-                  ? extractLocalTimeParts(current.scheduled_start_at, DEFAULT_TIMEZONE).dateStr
-                  : formatIsoDate());
+              : args.starts_at !== undefined
+                ? currentMskDate ?? undefined
+                : currentMskDate ?? formatIsoDate();
 
           const nextStartClockOrIso =
             args.starts_at !== undefined
@@ -1112,9 +1138,9 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
                 ? extractLocalTimeParts(current.scheduled_start_at, DEFAULT_TIMEZONE).timeStr
                 : null;
 
-          if (nextStartClockOrIso && nextDateStr) {
+          if (nextStartClockOrIso) {
             const sched = resolveScheduleInputs({
-              plannedDate: nextDateStr,
+              plannedDate: baseDateStr,
               startsAt: nextStartClockOrIso,
               endsAt: args.ends_at ?? null,
               durationMinutes: effectiveDuration,
@@ -1127,11 +1153,7 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
             patch.day_slot = args.day_slot ?? sched.day_slot;
             patch.estimated_minutes = sched.estimated_minutes;
           } else {
-            patch.planned_date = nextDateStr;
-            if (nextDateStr === null) {
-              patch.scheduled_start_at = null;
-              patch.scheduled_end_at = null;
-            }
+            patch.planned_date = baseDateStr ?? null;
           }
         }
 
