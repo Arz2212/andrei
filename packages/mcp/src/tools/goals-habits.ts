@@ -900,6 +900,10 @@ export function registerGoalsAndHabitsTools(server: McpServer): void {
           .nullable()
           .optional()
           .describe("Ежедневное время напоминания в Telegram в формате ЧЧ:ММ по МСК (например, '21:15'; null чтобы выключить)"),
+        telegram_chat_id: z
+          .union([z.number(), z.string()])
+          .optional()
+          .describe("Опциональный Telegram Chat ID собеседника для напоминаний по этой привычке"),
         sort_order: z.number().int().optional().describe("Порядок сортировки"),
         include_archived: z.boolean().optional().describe("Включить архивные привычки в list"),
       },
@@ -963,6 +967,19 @@ export function registerGoalsAndHabitsTools(server: McpServer): void {
             reminder_time: normalizedReminder ?? null,
             sort_order: args.sort_order,
           });
+
+          const explicitChatId =
+            args.telegram_chat_id !== undefined && Number.isFinite(Number(args.telegram_chat_id))
+              ? Number(args.telegram_chat_id)
+              : undefined;
+          if (explicitChatId && created.reminder_time) {
+            await db
+              .from("reminders_queue")
+              .update({ telegram_chat_id: explicitChatId })
+              .eq("entity_type", "habit_reminder")
+              .eq("entity_id", String(created.id))
+              .eq("status", "pending");
+          }
 
           return okResult({
             ok: true,
@@ -1033,6 +1050,19 @@ export function registerGoalsAndHabitsTools(server: McpServer): void {
           reminder_time: normalizedReminder,
           sort_order: args.sort_order,
         });
+
+        const explicitUpdateChatId =
+          args.telegram_chat_id !== undefined && Number.isFinite(Number(args.telegram_chat_id))
+            ? Number(args.telegram_chat_id)
+            : undefined;
+        if (explicitUpdateChatId && updated.reminder_time) {
+          await db
+            .from("reminders_queue")
+            .update({ telegram_chat_id: explicitUpdateChatId })
+            .eq("entity_type", "habit_reminder")
+            .eq("entity_id", String(updated.id))
+            .eq("status", "pending");
+        }
 
         return okResult({
           ok: true,

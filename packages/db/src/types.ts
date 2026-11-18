@@ -613,3 +613,28 @@ export interface TodayGoalsSummary {
   stalledCount: number;
   items: GoalWithDetails[];
 }
+
+// ============================================================================
+// Shared Telegram IDs & Interactive Onboarding State Types
+// ============================================================================
+
+export type TelegramOnboardingStatus = "not_started" | "in_progress" | "completed";
+
+export interface TelegramOnboardingEntry {
+  status: TelegramOnboardingStatus;
+  current_step: number;
+  completed_steps: string[];
+  answers: Record<string, unknown>;
+  updated_at: string | null;
+}
+
+export type TelegramOnboardingMap = Record<string, TelegramOnboardingEntry>;
+
+export interface TelegramOnboardingStateResult extends TelegramOnboardingEntry {
+  telegramUserId: string;
+  entry: TelegramOnboardingEntry;
+  allEntries: TelegramOnboardingMap;
+  displayName: string;
+  notifyTelegramIds: number[];
+  assistantSettings: AssistantSettings | null;
+}

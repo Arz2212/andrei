@@ -851,38 +851,51 @@ export function DashboardView({
               ) : null}
 
               {balanceMode === "accounts" ? (
-                <div className="flex flex-col divide-y divide-border/60 rounded-xl border border-border/80 bg-background/50">
-                  {financeAccounts.slice(0, 4).map((acc) => {
-                    const isCredit = acc.account_type === "credit_card";
-                    const availCredit = Math.max(
-                      0,
-                      Number(acc.credit_limit ?? 0) -
-                        Number(acc.statement_debt ?? 0)
-                    );
-                    return (
-                      <div
-                        key={acc.id}
-                        className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
-                      >
-                        <div className="flex min-w-0 flex-col">
-                          <span className="truncate font-medium text-foreground">
-                            {acc.name}
-                          </span>
-                          {isCredit ? (
-                            <span className="text-[11px] text-muted-foreground num-tabular">
-                              Долг грейса: {formatRub(acc.statement_debt)}
+                financeAccounts.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
+                    Счета ещё не добавлены — создай основной счёт в разделе{" "}
+                    <Link
+                      href="/finance?tab=accounts"
+                      className="font-medium text-foreground underline-offset-4 hover:text-primary hover:underline"
+                    >
+                      Финансы
+                    </Link>{" "}
+                    или сразу запиши первую операцию.
+                  </div>
+                ) : (
+                  <div className="flex flex-col divide-y divide-border/60 rounded-xl border border-border/80 bg-background/50">
+                    {financeAccounts.slice(0, 4).map((acc) => {
+                      const isCredit = acc.account_type === "credit_card";
+                      const availCredit = Math.max(
+                        0,
+                        Number(acc.credit_limit ?? 0) -
+                          Number(acc.statement_debt ?? 0)
+                      );
+                      return (
+                        <div
+                          key={acc.id}
+                          className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                        >
+                          <div className="flex min-w-0 flex-col">
+                            <span className="truncate font-medium text-foreground">
+                              {acc.name}
                             </span>
-                          ) : null}
+                            {isCredit ? (
+                              <span className="text-[11px] text-muted-foreground num-tabular">
+                                Долг грейса: {formatRub(acc.statement_debt)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <span className="shrink-0 whitespace-nowrap text-sm font-semibold num-tabular">
+                            {isCredit
+                              ? formatRub(availCredit)
+                              : formatRub(acc.balance)}
+                          </span>
                         </div>
-                        <span className="shrink-0 whitespace-nowrap text-sm font-semibold num-tabular">
-                          {isCredit
-                            ? formatRub(availCredit)
-                            : formatRub(acc.balance)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )
               ) : null}
 
               {balanceMode === "total" ? (

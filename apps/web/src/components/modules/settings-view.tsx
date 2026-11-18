@@ -100,7 +100,7 @@ export function SettingsView({
   const topicMap = (profile?.telegram_topic_map ?? {}) as Record<string, number>;
 
   const [displayName, setDisplayName] = React.useState(
-    profile?.display_name ?? "Андрей"
+    profile?.display_name ?? "Владелец"
   );
   const [dailyBuffer, setDailyBuffer] = React.useState(
     String(profile?.daily_buffer_minutes ?? 90)

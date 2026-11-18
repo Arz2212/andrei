@@ -1919,8 +1919,10 @@ export type Database = {
           display_name: string
           feature_flags: Json
           id: string
+          notify_telegram_ids: number[]
           owner_email: string
           telegram_forum_chat_id: number | null
+          telegram_onboarding: Json
           telegram_topic_map: Json
           telegram_user_id: number | null
           timezone: string
@@ -1935,8 +1937,10 @@ export type Database = {
           display_name?: string
           feature_flags?: Json
           id: string
+          notify_telegram_ids?: number[]
           owner_email: string
           telegram_forum_chat_id?: number | null
+          telegram_onboarding?: Json
           telegram_topic_map?: Json
           telegram_user_id?: number | null
           timezone?: string
@@ -1951,8 +1955,10 @@ export type Database = {
           display_name?: string
           feature_flags?: Json
           id?: string
+          notify_telegram_ids?: number[]
           owner_email?: string
           telegram_forum_chat_id?: number | null
+          telegram_onboarding?: Json
           telegram_topic_map?: Json
           telegram_user_id?: number | null
           timezone?: string

@@ -11,6 +11,12 @@ export interface TelegramSendResult {
   chatId: number;
 }
 
+export interface TelegramFanoutResult {
+  delivered: TelegramSendResult[];
+  skippedUninitiated: { chatId: number; reason: string }[];
+  failed: { chatId: number; reason: string }[];
+}
+
 interface TelegramApiResponse {
   ok: boolean;
   description?: string;
@@ -35,6 +41,12 @@ export function stripHtmlToPlainText(html: string): string {
     .replace(/&amp;/g, "&")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+export function isUninitiatedOrBlockedTelegramError(message: string): boolean {
+  return /chat not found|bot was blocked|user is deactivated|can't initiate conversation|have no rights to send a message|Forbidden/i.test(
+    message
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -150,4 +162,63 @@ export async function sendTelegramPush(
   }
 
   throw new Error(lastError);
+}
+
+/**
+ * Deduplicated multi-chat fan-out push (e.g. `[1479912341, 561860059]`).
+ * Succeeds if at least one recipient receives the message, and gracefully skips
+ * recipients who haven't pressed `/start` yet (`chat not found` / `403`) without failing.
+ */
+export async function sendTelegramPushFanout(params: {
+  botToken: string;
+  chatIds: number[];
+  htmlText: string;
+}): Promise<TelegramFanoutResult> {
+  const uniqueChatIds = Array.from(
+    new Set(params.chatIds.map(Number).filter((id) => Number.isFinite(id) && id > 0))
+  );
+
+  if (uniqueChatIds.length === 0) {
+    throw new Error("No valid Telegram chat IDs provided for fan-out push");
+  }
+
+  const settled = await Promise.allSettled(
+    uniqueChatIds.map((chatId) =>
+      sendTelegramPush({
+        botToken: params.botToken,
+        chatId,
+        htmlText: params.htmlText,
+      })
+    )
+  );
+
+  const delivered: TelegramSendResult[] = [];
+  const skippedUninitiated: { chatId: number; reason: string }[] = [];
+  const failed: { chatId: number; reason: string }[] = [];
+
+  settled.forEach((outcome, index) => {
+    const chatId = uniqueChatIds[index];
+    if (outcome.status === "fulfilled") {
+      delivered.push(outcome.value);
+      return;
+    }
+
+    const reason =
+      outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+    if (isUninitiatedOrBlockedTelegramError(reason)) {
+      skippedUninitiated.push({ chatId, reason });
+      console.info(
+        `[notifier] Chat ${chatId} is not initiated yet (${reason}); skipped cleanly.`
+      );
+    } else {
+      failed.push({ chatId, reason });
+      console.warn(`[notifier] Push failed for chat ${chatId}: ${reason}`);
+    }
+  });
+
+  if (delivered.length === 0 && failed.length > 0) {
+    throw new Error(failed.map((f) => `chat ${f.chatId}: ${f.reason}`).join("; "));
+  }
+
+  return { delivered, skippedUninitiated, failed };
 }

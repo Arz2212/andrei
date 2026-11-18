@@ -448,18 +448,42 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
             className="min-h-10 rounded-xl"
           >
             <TagsIcon data-icon="inline-start" />
-            Категории
+            + Категория
+            {data.categories.length > 0 ? (
+              <Badge
+                variant="secondary"
+                className="ml-1 px-1.5 py-0 text-[11px] num-tabular"
+              >
+                {data.categories.length}
+              </Badge>
+            ) : null}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => openCreateTransaction("transfer")}
-            className="min-h-10 rounded-xl"
-          >
-            <ArrowLeftRightIcon data-icon="inline-start" />
-            Перевод
-          </Button>
+          {data.accounts.length === 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingAcc(null);
+                setAccModalOpen(true);
+              }}
+              className="min-h-10 rounded-xl"
+            >
+              <WalletIcon data-icon="inline-start" />
+              + Счёт
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openCreateTransaction("transfer")}
+              className="min-h-10 rounded-xl"
+            >
+              <ArrowLeftRightIcon data-icon="inline-start" />
+              Перевод
+            </Button>
+          )}
           <Button
             type="button"
             size="sm"
@@ -571,7 +595,7 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
                   <span className="text-xs text-muted-foreground">
                     Ликвидные средства
                   </span>
-                  <span className="text-sm font-semibold num-tabular">
+                  <span className="whitespace-nowrap text-sm font-semibold num-tabular">
                     {formatRub(liquidBalance)}
                   </span>
                 </div>
@@ -580,7 +604,7 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
                   <span className="text-xs text-muted-foreground">
                     Защитный резерв
                   </span>
-                  <span className="text-sm font-semibold text-muted-foreground num-tabular">
+                  <span className="whitespace-nowrap text-sm font-semibold text-muted-foreground num-tabular">
                     − {formatRub(protectedReserve)}
                   </span>
                 </div>
@@ -589,7 +613,7 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
                   <span className="text-xs text-muted-foreground">
                     Платежи и подписки (30 дн.)
                   </span>
-                  <span className="text-sm font-semibold text-muted-foreground num-tabular">
+                  <span className="whitespace-nowrap text-sm font-semibold text-muted-foreground num-tabular">
                     − {formatRub(upcomingObligationsTotal)}
                   </span>
                 </div>
@@ -598,91 +622,145 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
                   <span className="text-xs text-muted-foreground">
                     Грейс кредитки и долги
                   </span>
-                  <span className="text-sm font-semibold text-muted-foreground num-tabular">
+                  <span className="whitespace-nowrap text-sm font-semibold text-muted-foreground num-tabular">
                     − {formatRub(creditGraceDebt + reservedDebtsTotal)}
                   </span>
                 </div>
               </div>
+
+              {data.accounts.length === 0 ? (
+                <div className="flex flex-col items-start justify-between gap-3 rounded-xl border border-dashed border-border bg-muted/25 p-3.5 sm:flex-row sm:items-center">
+                  <p className="text-xs text-muted-foreground">
+                    Счета и категории пусты — добавь основной счёт и свои категории или сразу запиши первую операцию.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setEditingAcc(null);
+                        setAccModalOpen(true);
+                      }}
+                      className="min-h-9 rounded-xl"
+                    >
+                      <PlusIcon data-icon="inline-start" />
+                      Добавить счёт
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCategoriesOpen(true)}
+                      className="min-h-9 rounded-xl"
+                    >
+                      <TagsIcon data-icon="inline-start" />
+                      + Категория
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </>
           ) : null}
 
           {balanceMode === "accounts" ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {data.accounts.map((acc) => {
-                const isCredit = acc.account_type === "credit_card";
-                const limit = Number(acc.credit_limit ?? 0);
-                const debt = Number(acc.statement_debt ?? 0);
-                const availCredit = Math.max(0, limit - debt);
-                const reserve = Number(acc.protected_reserve ?? 0);
+            data.accounts.length === 0 ? (
+              <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-border p-6 text-center">
+                <p className="text-sm font-medium">Счета ещё не добавлены</p>
+                <p className="max-w-md text-xs text-muted-foreground">
+                  Добавь дебетовую карту, наличные, накопительный резерв или кредитную карту с датой грейс-периода.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setEditingAcc(null);
+                    setAccModalOpen(true);
+                  }}
+                  className="min-h-10 rounded-xl"
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Добавить первый счёт
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {data.accounts.map((acc) => {
+                  const isCredit = acc.account_type === "credit_card";
+                  const limit = Number(acc.credit_limit ?? 0);
+                  const debt = Number(acc.statement_debt ?? 0);
+                  const availCredit = Math.max(0, limit - debt);
+                  const reserve = Number(acc.protected_reserve ?? 0);
 
-                return (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => {
-                      setEditingAcc(acc);
-                      setAccModalOpen(true);
-                    }}
-                    className="flex flex-col justify-between gap-2.5 rounded-xl border border-border/80 bg-background/60 p-3.5 text-left transition-colors hover:bg-muted/45"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <AccountTypeIcon
-                          type={acc.account_type as FinanceAccountType}
-                          className="size-4 shrink-0 text-domain-finance"
-                        />
-                        <span className="truncate text-sm font-medium">
-                          {acc.name}
-                        </span>
-                      </div>
-                      <Badge variant="secondary" className="shrink-0 text-[11px]">
-                        {isCredit
-                          ? "Кредитка"
-                          : ACCOUNT_TYPE_LABELS[acc.account_type as FinanceAccountType]}
-                      </Badge>
-                    </div>
-
-                    {isCredit ? (
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="text-xs text-muted-foreground">
-                            Доступно из лимита
-                          </span>
-                          <span className="text-base font-semibold num-tabular">
-                            {formatRub(availCredit)}
+                  return (
+                    <button
+                      key={acc.id}
+                      type="button"
+                      onClick={() => {
+                        setEditingAcc(acc);
+                        setAccModalOpen(true);
+                      }}
+                      className="flex flex-col justify-between gap-2.5 rounded-xl border border-border/80 bg-background/60 p-3.5 text-left transition-colors hover:bg-muted/45"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <AccountTypeIcon
+                            type={acc.account_type as FinanceAccountType}
+                            className="size-4 shrink-0 text-domain-finance"
+                          />
+                          <span className="truncate text-sm font-medium">
+                            {acc.name}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground num-tabular">
-                          <span>
-                            Долг: {formatRub(debt)} из {formatRub(limit)}
-                          </span>
-                          {acc.grace_period_due_date && debt > 0 ? (
-                            <span className="font-medium text-foreground">
-                              грейс до {formatDateShortRu(acc.grace_period_due_date)}
+                        <Badge variant="secondary" className="shrink-0 text-[11px]">
+                          {isCredit
+                            ? "Кредитка"
+                            : ACCOUNT_TYPE_LABELS[acc.account_type as FinanceAccountType]}
+                        </Badge>
+                      </div>
+
+                      {isCredit ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              Доступно из лимита
                             </span>
-                          ) : null}
+                            <span className="whitespace-nowrap text-base font-semibold num-tabular">
+                              {formatRub(availCredit)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground num-tabular">
+                            <span>
+                              Долг: {formatRub(debt)} из {formatRub(limit)}
+                            </span>
+                            {acc.grace_period_due_date && debt > 0 ? (
+                              <span className="font-medium text-foreground">
+                                грейс до {formatDateShortRu(acc.grace_period_due_date)}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-1">
-                        <span className="text-lg font-semibold tracking-tight num-tabular">
-                          {formatRub(acc.balance)}
-                        </span>
-                        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground num-tabular">
-                          <span>
-                            {reserve > 0
-                              ? `Резерв: ${formatRub(reserve)}`
-                              : acc.include_in_safe_to_spend
-                                ? "Учитывается в Safe-to-Spend"
-                                : "Отдельный целевой резерв"}
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <span className="whitespace-nowrap text-lg font-semibold tracking-tight num-tabular">
+                            {formatRub(acc.balance)}
                           </span>
+                          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground num-tabular">
+                            <span>
+                              {reserve > 0
+                                ? `Резерв: ${formatRub(reserve)}`
+                                : acc.include_in_safe_to_spend
+                                  ? "Учитывается в Safe-to-Spend"
+                                  : "Отдельный целевой резерв"}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )
           ) : null}
 
           {balanceMode === "total" ? (
@@ -880,22 +958,51 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
                     Рабочие закупки (0 ₽ личной доли) не искажают бюджеты категорий
                   </CardDescription>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openCreateTransaction("expense")}
-                  className="rounded-xl"
-                >
-                  <PlusIcon data-icon="inline-start" />
-                  Расход
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCategoriesOpen(true)}
+                    className="rounded-xl"
+                  >
+                    <TagsIcon data-icon="inline-start" />
+                    + Категория
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openCreateTransaction("expense")}
+                    className="rounded-xl"
+                  >
+                    <PlusIcon data-icon="inline-start" />
+                    Расход
+                  </Button>
+                </div>
               </CardHeader>
 
               <CardContent className="flex flex-col gap-3.5">
                 {monthAnalytics.by_category.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                    За {formatMonthTitleRu(selectedMonth).toLowerCase()} пока нет записанных расходов.
+                  <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                    <span>
+                      За {formatMonthTitleRu(selectedMonth).toLowerCase()} пока нет записанных расходов.
+                      {data.categories.length === 0
+                        ? " Создай категории под свой уклад жизни или укажи категорию прямо при записи чека."
+                        : ""}
+                    </span>
+                    {data.categories.length === 0 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCategoriesOpen(true)}
+                        className="rounded-xl"
+                      >
+                        <PlusIcon data-icon="inline-start" />
+                        Создать категории
+                      </Button>
+                    ) : null}
                   </div>
                 ) : (
                   monthAnalytics.by_category.map((cat) => {
@@ -1478,8 +1585,35 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {data.accounts.map((acc) => {
+          {data.accounts.length === 0 ? (
+            <Card className="rounded-2xl shadow-none">
+              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                <WalletIcon className="size-8 text-muted-foreground/60" />
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium">
+                    Счета и карты ещё не добавлены
+                  </p>
+                  <p className="max-w-md text-xs text-muted-foreground">
+                    Добавь основной дебетовый счёт, наличные, накопительный резерв или кредитную карту с отслеживанием грейс-периода.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setEditingAcc(null);
+                    setAccModalOpen(true);
+                  }}
+                  className="min-h-10 rounded-xl"
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Добавить первый счёт
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {data.accounts.map((acc) => {
               const isCredit = acc.account_type === "credit_card";
               const limit = Number(acc.credit_limit ?? 0);
               const debt = Number(acc.statement_debt ?? 0);
@@ -1648,7 +1782,8 @@ export function FinanceView({ todayDate, initialTab, data }: FinanceViewProps) {
                 </Card>
               );
             })}
-          </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* ================================================================ */}

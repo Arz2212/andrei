@@ -16,12 +16,13 @@ import { registerFinanceTools } from "./tools/finance";
 import { registerNutritionTools } from "./tools/nutrition";
 import { registerHealthTools } from "./tools/health";
 import { registerGoalsAndHabitsTools } from "./tools/goals-habits";
+import { registerOnboardingAndTelegramTools } from "./tools/onboarding";
 
 loadEnvSilently();
 
 const server = new McpServer({
   name: "life-os",
-  version: "1.5.0",
+  version: "1.6.0",
 });
 
 registerOverviewAndTaskTools(server);
@@ -30,6 +31,7 @@ registerFinanceTools(server);
 registerNutritionTools(server);
 registerHealthTools(server);
 registerGoalsAndHabitsTools(server);
+registerOnboardingAndTelegramTools(server);
 
 // Expose live assistant persona & agreements as an MCP prompt as well
 server.registerPrompt(

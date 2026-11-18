@@ -39,6 +39,7 @@ import {
   updateFinanceDebt,
   updateFinanceObligation,
   updateFinanceTransaction,
+  upsertFinanceCategory,
   type BillingPeriod,
   type DebtDirection,
   type FinanceAccount,
@@ -197,8 +198,8 @@ async function buildTransactionInsertFromEntry(
   if (!sourceAccount) {
     throw new Error(
       accountRef
-        ? `Счёт «${accountRef}» не найден. Вызови manage_finance_account(action='list').`
-        : "В базе нет активных финансовых счетов."
+        ? `Счёт «${accountRef}» не найден. Вызови manage_finance_account(action='list') или создай счёт через manage_finance_account(action='create').`
+        : "В базе пока нет ни одного финансового счёта (0 счетов). Сначала создай счёт через manage_finance_account(action='create', name='Основная карта', account_type='debit', balance=0)."
     );
   }
 
@@ -228,6 +229,14 @@ async function buildTransactionInsertFromEntry(
         if (category) {
           categoryId = category.id;
           resolvedCategoryName = category.name;
+        } else if (typeof entry.category === "string" && entry.category.trim().length > 0) {
+          // Clean-slate auto-create: if user explicitly named a category on a 0-category DB, create it automatically
+          const createdCat = await upsertFinanceCategory(db, userId, {
+            name: entry.category.trim(),
+            kind: catKind,
+          });
+          categoryId = createdCat.id;
+          resolvedCategoryName = createdCat.name;
         }
       }
     }
@@ -743,8 +752,17 @@ export function registerFinanceTools(server: McpServer): void {
           } else {
             const effectiveKind = (args.kind ?? current.kind) === "income" ? "income" : "expense";
             const { category } = await resolveCategoryByFuzzyQuery(db, args.category, effectiveKind);
-            if (!category) return errResult(`Категория «${args.category}» не найдена.`);
-            patch.category_id = category.id;
+            if (category) {
+              patch.category_id = category.id;
+            } else if (typeof args.category === "string" && args.category.trim().length > 0) {
+              const createdCat = await upsertFinanceCategory(db, current.user_id, {
+                name: args.category.trim(),
+                kind: effectiveKind,
+              });
+              patch.category_id = createdCat.id;
+            } else {
+              return errResult(`Категория «${args.category}» не найдена.`);
+            }
           }
         }
 
@@ -1349,16 +1367,19 @@ export function registerFinanceTools(server: McpServer): void {
   server.registerTool(
     "manage_finance_category",
     {
-      title: "Управление категориями трат/доходов, лимитами и голосовыми синонимами",
+      title: "Управление категориями трат/доходов (список, создание, пакетное создание при онбординге, лимиты и голосовые синонимы)",
       description:
-        "Просмотр, создание, редактирование (название, месячный лимит бюджета monthly_limit, массив голосовых синонимов voice_aliases для распознавания из речи) или удаление категорий.",
+        "Просмотр, создание с нуля (`create` или пакетное `bulk_create` сразу 4–8 категорий во время онбординга), редактирование (`update`: название, месячный лимит `monthly_limit` / `monthly_budget`, голосовые синонимы `voice_aliases`) и удаление (`delete`) категорий трат и доходов.",
       inputSchema: {
-        action: z.enum(["list", "create", "update", "delete"]),
-        query: z.string().optional().describe("Название категории для поиска"),
-        category_id: z.number().int().positive().optional(),
-        kind: z.enum(["expense", "income"]).optional().describe("Тип категории (по умолчанию expense)"),
-        name: z.string().min(1).max(120).optional().describe("Название категории"),
+        action: z
+          .enum(["list", "create", "bulk_create", "update", "delete"])
+          .describe("Действие: list, create, bulk_create, update, delete"),
+        query: z.string().optional().describe("Название категории для нечёткого поиска (при update / delete)"),
+        category_id: z.number().int().positive().optional().describe("Точный ID категории, если известен"),
+        kind: z.enum(["expense", "income"]).optional().describe("Тип категории: expense (по умолчанию) или income"),
+        name: z.string().min(1).max(120).optional().describe("Название категории (для create / update)"),
         monthly_limit: z.number().min(0).nullable().optional().describe("Месячный лимит бюджета в рублях"),
+        monthly_budget: z.number().min(0).nullable().optional().describe("Алиас для monthly_limit"),
         voice_aliases: z
           .array(z.string().min(1).max(60))
           .optional()
@@ -1367,6 +1388,25 @@ export function registerFinanceTools(server: McpServer): void {
           .enum(["domain-finance", "domain-work", "domain-nutrition", "domain-health", "domain-mind"])
           .optional(),
         icon_name: z.string().max(40).optional(),
+        categories: z
+          .array(
+            z.union([
+              z.string().min(1).max(120),
+              z.object({
+                name: z.string().min(1).max(120).describe("Название категории"),
+                kind: z.enum(["expense", "income"]).optional().describe("expense (по умолчанию) или income"),
+                monthly_limit: z.number().min(0).nullable().optional(),
+                monthly_budget: z.number().min(0).nullable().optional(),
+                voice_aliases: z.array(z.string().min(1).max(60)).optional(),
+                color_token: z.string().max(40).optional(),
+                icon_name: z.string().max(40).optional(),
+              }),
+            ])
+          )
+          .optional()
+          .describe(
+            "Массив категорий для action='bulk_create' (строки вида 'Еда и продукты' или объекты с лимитами и синонимами)"
+          ),
       },
     },
     async (args) => {
@@ -1377,37 +1417,86 @@ export function registerFinanceTools(server: McpServer): void {
           return okResult({ ok: true, count: cats.length, categories: cats });
         }
 
+        if (args.action === "bulk_create" || (args.action === "create" && args.categories?.length)) {
+          const items = args.categories ?? (args.name?.trim() ? [args.name.trim()] : []);
+          if (items.length === 0) {
+            return errResult("Передай массив `categories` для пакетного создания категорий.");
+          }
+
+          const createdList: FinanceCategory[] = [];
+          for (let i = 0; i < items.length; i += 1) {
+            const raw = items[i];
+            if (typeof raw === "string") {
+              const saved = await upsertFinanceCategory(db, userId, {
+                name: raw.trim(),
+                kind: args.kind ?? "expense",
+                sort_order: (i + 1) * 10,
+              });
+              createdList.push(saved);
+            } else {
+              const saved = await upsertFinanceCategory(db, userId, {
+                name: raw.name.trim(),
+                kind: raw.kind ?? args.kind ?? "expense",
+                monthly_limit:
+                  raw.monthly_limit !== undefined ? raw.monthly_limit : raw.monthly_budget,
+                voice_aliases: raw.voice_aliases,
+                color_token: raw.color_token,
+                icon_name: raw.icon_name,
+                sort_order: (i + 1) * 10,
+              });
+              createdList.push(saved);
+            }
+          }
+
+          return okResult({
+            ok: true,
+            created_count: createdList.length,
+            categories: createdList,
+          });
+        }
+
         if (args.action === "create") {
           if (!args.name?.trim()) return errResult("Укажи название категории `name`.");
-          const created = await createFinanceCategory(db, {
-            user_id: userId,
-            kind: args.kind ?? "expense",
+          const created = await upsertFinanceCategory(db, userId, {
             name: args.name.trim(),
-            monthly_limit: args.monthly_limit ?? null,
-            voice_aliases: args.voice_aliases ?? [],
-            color_token: args.color_token ?? "domain-finance",
-            icon_name: args.icon_name ?? "receipt",
+            kind: args.kind ?? "expense",
+            monthly_limit:
+              args.monthly_limit !== undefined ? args.monthly_limit : args.monthly_budget ?? null,
+            voice_aliases: args.voice_aliases,
+            color_token: args.color_token,
+            icon_name: args.icon_name,
           });
           return okResult({ ok: true, category: created });
         }
 
+        if (args.action === "delete") {
+          const ref = args.category_id ?? args.query ?? args.name;
+          if (!ref) return errResult("Укажи `query` (название категории) или `category_id`.");
+          await deleteFinanceCategory(db, ref);
+          return okResult({ ok: true, deleted_ref: ref });
+        }
+
+        // action === "update"
         let targetId = args.category_id;
+        let existingCat: FinanceCategory | null = null;
         if (!targetId) {
           const searchStr = args.query ?? args.name;
           if (!searchStr?.trim()) return errResult("Укажи `query` или `category_id`.");
           const { category } = await resolveCategoryByFuzzyQuery(db, searchStr.trim(), args.kind);
           if (!category) return errResult(`Категория «${searchStr}» не найдена.`);
           targetId = category.id;
+          existingCat = category;
+        } else {
+          const allCats = await listFinanceCategories(db, undefined, true);
+          existingCat = allCats.find((c) => c.id === targetId) ?? null;
         }
 
-        if (args.action === "delete") {
-          await deleteFinanceCategory(db, targetId);
-          return okResult({ ok: true, deleted_id: targetId });
-        }
-
-        const updated = await updateFinanceCategory(db, targetId, {
-          name: args.name?.trim(),
-          monthly_limit: args.monthly_limit,
+        const updated = await upsertFinanceCategory(db, userId, {
+          id: targetId,
+          name: args.name?.trim() || existingCat?.name || "Категория",
+          kind: args.kind ?? (existingCat?.kind as FinanceCategoryKind | undefined),
+          monthly_limit:
+            args.monthly_limit !== undefined ? args.monthly_limit : args.monthly_budget,
           voice_aliases: args.voice_aliases,
           color_token: args.color_token,
           icon_name: args.icon_name,

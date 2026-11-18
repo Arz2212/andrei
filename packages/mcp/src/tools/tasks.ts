@@ -29,6 +29,7 @@ import {
   listTasks,
   listTasksInDateRange,
   localClockToUtcIso,
+  syncTaskRemindersToQueue,
   toggleTaskDone,
   updateAssistantAgreement,
   updateProject,
@@ -710,6 +711,10 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           .boolean()
           .optional()
           .describe("Разрешить создание дубля, если похожая активная задача на эту дату уже есть (по умолчанию false)"),
+        telegram_chat_id: z
+          .union([z.number(), z.string()])
+          .optional()
+          .describe("Опциональный Telegram Chat ID собеседника, чтобы будильник пришёл именно в его чат"),
       },
     },
     async (args) => {
@@ -825,6 +830,17 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           follow_up_at: followUpIso,
           source: "mcp",
         });
+
+        const explicitChatId =
+          args.telegram_chat_id !== undefined && Number.isFinite(Number(args.telegram_chat_id))
+            ? Number(args.telegram_chat_id)
+            : undefined;
+        if (explicitChatId) {
+          await syncTaskRemindersToQueue(db, created, {
+            timeZone: DEFAULT_TIMEZONE,
+            telegramChatId: explicitChatId,
+          });
+        }
 
         const syncedReminders = await listRemindersQueue(db, {
           status: "pending",
@@ -960,6 +976,10 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
         waiting_for_person: z.string().max(200).nullable().optional().describe("От кого ждём ответ"),
         waiting_context: z.string().max(1000).nullable().optional().describe("Контекст ожидания"),
         follow_up_at: z.string().nullable().optional().describe("Новая дата/время напоминания по ожиданию"),
+        telegram_chat_id: z
+          .union([z.number(), z.string()])
+          .optional()
+          .describe("Опциональный Telegram Chat ID собеседника для доставки напоминания"),
       },
     },
     async (args) => {
@@ -1146,6 +1166,17 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
         }
 
         const updated = await updateTask(db, current.id, patch);
+
+        const explicitUpdateChatId =
+          args.telegram_chat_id !== undefined && Number.isFinite(Number(args.telegram_chat_id))
+            ? Number(args.telegram_chat_id)
+            : undefined;
+        if (explicitUpdateChatId) {
+          await syncTaskRemindersToQueue(db, updated, {
+            timeZone: DEFAULT_TIMEZONE,
+            telegramChatId: explicitUpdateChatId,
+          });
+        }
 
         const conflicts = updated.scheduled_start_at
           ? await findTimeConflicts(db, {
@@ -1558,6 +1589,10 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           .string()
           .optional()
           .describe("Альтернативно: полный ISO-таймстемп срабатывания"),
+        telegram_chat_id: z
+          .union([z.number(), z.string()])
+          .optional()
+          .describe("Telegram Chat ID собеседника, чтобы будильник пришёл именно в его личный диалог"),
       },
     },
     async (args) => {
@@ -1591,10 +1626,16 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           return errResult("Укажи `in_minutes` (через сколько минут), `time_msk` (ЧЧ:ММ) или `trigger_at`.");
         }
 
+        const explicitChatId =
+          args.telegram_chat_id !== undefined && Number.isFinite(Number(args.telegram_chat_id))
+            ? Number(args.telegram_chat_id)
+            : undefined;
+
         const created = await createStandaloneReminder(db, {
           userId,
           triggerAt: triggerIso,
           messageText: args.message_text.trim(),
+          telegramChatId: explicitChatId,
         });
 
         const mskParts = extractLocalTimeParts(created.trigger_at, DEFAULT_TIMEZONE);

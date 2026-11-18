@@ -325,7 +325,11 @@ export function HabitsTab({ habits, goals, anchorDate }: HabitsTabProps) {
       {filteredHabits.length === 0 ? (
         <Card className="rounded-2xl border-dashed py-8 text-center shadow-none">
           <CardContent className="flex flex-col items-center gap-2 py-0">
-            <p className="text-sm font-medium">В этом слоте пока нет привычек</p>
+            <p className="text-sm font-medium">
+              {activeHabits.length === 0
+                ? "Активных привычек пока нет"
+                : "В этом слоте пока нет привычек"}
+            </p>
             <p className="max-w-sm text-xs text-muted-foreground">
               Добавьте короткий ежедневный ритуал или привычку с гибкой целью на неделю — отмечается в один тап.
             </p>

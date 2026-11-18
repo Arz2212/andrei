@@ -9,8 +9,13 @@ import { sendTelegramPush } from "./telegram-push";
 import { NotifierWorker } from "./worker";
 
 export { loadNotifierEnv } from "./env";
-export { NotifierWorker } from "./worker";
-export { sendTelegramPush, stripHtmlToPlainText } from "./telegram-push";
+export { NotifierWorker, resolveReminderTargetChatIds } from "./worker";
+export {
+  sendTelegramPush,
+  sendTelegramPushFanout,
+  stripHtmlToPlainText,
+  isUninitiatedOrBlockedTelegramError,
+} from "./telegram-push";
 export {
   buildMorningDigestHtml,
   buildEveningReviewNudgeHtml,

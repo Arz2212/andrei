@@ -294,7 +294,7 @@ function WeightTrendSvgChart({
 
       {/* X axis start / middle / end dates */}
       {[0, Math.floor((pts.length - 1) / 2), pts.length - 1]
-        .filter((v, i, arr) => v >= 0 && arr.indexOf(v) === i)
+        .filter((v, i, arr) => v >= 0 && v < pts.length && arr.indexOf(v) === i)
         .map((idx) => (
           <text
             key={idx}
@@ -318,6 +318,13 @@ function CalorieBarsSvgChart({
   analytics: NutritionAndWeightAnalytics;
 }) {
   const pts = analytics.series;
+  if (pts.length === 0) {
+    return (
+      <div className="flex h-44 items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground">
+        Запиши приёмы пищи, чтобы увидеть динамику калорий по дням
+      </div>
+    );
+  }
   const targetKcal = Math.max(1000, Number(analytics.targets.kcal_target || 2200));
   const maxKcal = Math.max(
     targetKcal * 1.2,
@@ -416,7 +423,7 @@ function CalorieBarsSvgChart({
       </text>
 
       {[0, Math.floor((pts.length - 1) / 2), pts.length - 1]
-        .filter((v, i, arr) => v >= 0 && arr.indexOf(v) === i)
+        .filter((v, i, arr) => v >= 0 && v < pts.length && arr.indexOf(v) === i)
         .map((idx) => {
           const xCenter = padL + slotW * idx + slotW / 2;
           return (
@@ -1392,8 +1399,37 @@ export function NutritionView({ initialTab, data }: NutritionViewProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {filteredRecipes.map((rec) => {
+          {filteredRecipes.length === 0 ? (
+            <Card className="rounded-2xl shadow-none">
+              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                <ChefHatIcon className="size-8 text-muted-foreground/60" />
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium">
+                    {data.recipes.length === 0
+                      ? "Книга рецептов пока пуста"
+                      : "Рецепты по фильтру не найдены"}
+                  </p>
+                  <p className="max-w-md text-xs text-muted-foreground">
+                    Добавь свои любимые блюда с граммовками ингредиентов — КБЖУ на порцию и на 100 г рассчитаются автоматически по справочнику продуктов.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setEditingRecipe(null);
+                    setRecipeModalOpen(true);
+                  }}
+                  className="min-h-10 rounded-xl"
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Новый рецепт
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {filteredRecipes.map((rec) => {
               const targetDiarySlot: DiaryMealSlot =
                 rec.meal_category === "breakfast"
                   ? "breakfast"
@@ -1548,7 +1584,8 @@ export function NutritionView({ initialTab, data }: NutritionViewProps) {
                 </Card>
               );
             })}
-          </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* ================================================================ */}

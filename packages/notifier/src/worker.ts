@@ -8,15 +8,16 @@ import {
   listRemindersQueue,
   markReminderFailed,
   markTaskReminderSent,
-  resolveDefaultTelegramChatId,
+  resolveNotifyTelegramIds,
   syncHabitReminderToQueue,
   type Habit,
   type ReminderEntityType,
   type ReminderQueueItem,
   type TypedSupabaseClient,
+  type UserProfile,
 } from "@life-os/db";
 import { DigestCheckController } from "./digests";
-import { sendTelegramPush } from "./telegram-push";
+import { sendTelegramPushFanout } from "./telegram-push";
 
 export const SUPPORTED_QUEUE_ENTITY_TYPES: readonly ReminderEntityType[] = [
   "task_start",
@@ -49,12 +50,53 @@ export interface NotifierWorkerOptions {
   appUrl: string;
 }
 
-function ensureGoalsLinkOnHtml(htmlText: string, appUrl: string, linkLabel: string, pathSuffix = "/goals"): string {
+function ensureGoalsLinkOnHtml(
+  htmlText: string,
+  appUrl: string,
+  linkLabel: string,
+  pathSuffix = "/goals"
+): string {
   if (htmlText.includes("<a href=")) {
     return htmlText;
   }
   const safeHref = escapeTelegramHtml(`${appUrl}${pathSuffix}`);
   return `${htmlText}\n\n🔗 <a href="${safeHref}">${escapeTelegramHtml(linkLabel)}</a>`;
+}
+
+/**
+ * Resolves target Telegram chat IDs for a queued reminder:
+ * - If a reminder explicitly targets a non-default chat (e.g. `561860059` created a personal reminder in Telegram,
+ *   or `metadata.explicit_chat_id` is set), delivers directly to that specific chat ID.
+ * - Otherwise (general web-created reminders, auto-synced task/habit/finance/health reminders where `telegram_chat_id`
+ *   is null or the default primary owner ID), fans out to all deduplicated IDs in `resolveNotifyTelegramIds(profile)` (`[1479912341, 561860059]`).
+ */
+export function resolveReminderTargetChatIds(
+  claimed: ReminderQueueItem,
+  profile: UserProfile | null,
+  fallbackPrimaryId: number
+): number[] {
+  const allSharedIds = resolveNotifyTelegramIds(profile);
+  const defaultPrimaryId = Number(profile?.telegram_user_id || fallbackPrimaryId || 1479912341);
+  const meta =
+    claimed.metadata && typeof claimed.metadata === "object" && !Array.isArray(claimed.metadata)
+      ? (claimed.metadata as Record<string, unknown>)
+      : {};
+
+  if (meta.fanout_all === true) {
+    return allSharedIds;
+  }
+
+  const rowChatId = claimed.telegram_chat_id ? Number(claimed.telegram_chat_id) : null;
+  if (
+    rowChatId &&
+    Number.isFinite(rowChatId) &&
+    rowChatId > 0 &&
+    (rowChatId !== defaultPrimaryId || meta.explicit_single_chat === true)
+  ) {
+    return [rowChatId];
+  }
+
+  return allSharedIds.length > 0 ? allSharedIds : [defaultPrimaryId];
 }
 
 export class NotifierWorker {
@@ -81,7 +123,6 @@ export class NotifierWorker {
     this.db = db;
     this.userId = userId;
 
-    // Keep Supabase Realtime WebSocket JWT fresh across 24/7 token refreshes
     const { data: sessionData } = await db.auth.getSession();
     if (sessionData.session?.access_token) {
       db.realtime.setAuth(sessionData.session.access_token);
@@ -94,6 +135,9 @@ export class NotifierWorker {
     });
     this.authUnsubscribe = () => authListener.subscription.unsubscribe();
 
+    const profile = await getOwnerProfile(db).catch(() => null);
+    const sharedIds = resolveNotifyTelegramIds(profile);
+
     await this.subscribeRealtime(db);
     await this.runSweep();
 
@@ -102,7 +146,7 @@ export class NotifierWorker {
     }, SWEEP_INTERVAL_MS);
 
     console.info(
-      `[notifier] Online for owner=${userId} chat=${this.options.ownerTelegramId} (Realtime + 60s sweep active, Telegram polling DISABLED)`
+      `[notifier] Online for owner=${userId} chats=[${sharedIds.join(", ")}] (Realtime + 60s sweep active, Telegram polling DISABLED)`
     );
   }
 
@@ -245,17 +289,11 @@ export class NotifierWorker {
     }
   }
 
-  /**
-   * Handles daily `habit_reminder` check:
-   * - If the habit is already completed today (or archived), silently skips nagging and rolls tomorrow's reminder.
-   * - Otherwise returns formatted HTML + schedules tomorrow's rolling daily reminder after delivery.
-   */
   private async prepareHabitReminderDelivery(
     db: TypedSupabaseClient,
-    claimed: ReminderQueueItem
-  ): Promise<{ shouldSend: boolean; htmlText: string; habitToRoll: Habit | null; timeZone: string }> {
-    const profile = await getOwnerProfile(db);
-    const timeZone = profile?.timezone || "Europe/Moscow";
+    claimed: ReminderQueueItem,
+    timeZone: string
+  ): Promise<{ shouldSend: boolean; htmlText: string; habitToRoll: Habit | null }> {
     const habitId = claimed.entity_id ? Number(claimed.entity_id) : NaN;
 
     if (!Number.isFinite(habitId) || habitId <= 0) {
@@ -268,7 +306,6 @@ export class NotifierWorker {
           "/goals"
         ),
         habitToRoll: null,
-        timeZone,
       };
     }
 
@@ -288,23 +325,23 @@ export class NotifierWorker {
         shouldSend: false,
         htmlText: claimed.message_text,
         habitToRoll: null,
-        timeZone,
       };
     }
 
     if (todayLog?.completed) {
-      // Already completed today -> roll tomorrow's reminder silently without nagging!
       await syncHabitReminderToQueue(db, habit, {
         timeZone,
         completedToday: true,
       }).catch((err) => {
-        console.error(`[notifier] Failed rolling tomorrow's habit_reminder for habit #${habit.id}:`, err);
+        console.error(
+          `[notifier] Failed rolling tomorrow's habit_reminder for habit #${habit.id}:`,
+          err
+        );
       });
       return {
         shouldSend: false,
         htmlText: claimed.message_text,
         habitToRoll: null,
-        timeZone,
       };
     }
 
@@ -319,7 +356,6 @@ export class NotifierWorker {
       shouldSend: true,
       htmlText,
       habitToRoll: habit,
-      timeZone,
     };
   }
 
@@ -333,22 +369,24 @@ export class NotifierWorker {
 
     try {
       const { db } = await getOwnerBotDbClient();
-      // Atomic DB transition pending -> sent prevents duplicate delivery across Realtime & sweep
       const claimed = await claimDueReminder(db, reminderId);
       if (!claimed) {
         return false;
       }
 
-      const chatId = resolveDefaultTelegramChatId(
-        claimed.telegram_chat_id || this.options.ownerTelegramId
+      const profile = await getOwnerProfile(db).catch(() => null);
+      const timeZone = profile?.timezone || "Europe/Moscow";
+      const targetChatIds = resolveReminderTargetChatIds(
+        claimed,
+        profile,
+        this.options.ownerTelegramId
       );
 
       let htmlToSend = claimed.message_text;
       let habitToRoll: Habit | null = null;
-      let habitTimeZone = "Europe/Moscow";
 
       if (claimed.entity_type === "habit_reminder") {
-        const prepared = await this.prepareHabitReminderDelivery(db, claimed);
+        const prepared = await this.prepareHabitReminderDelivery(db, claimed, timeZone);
         if (!prepared.shouldSend) {
           console.info(
             `[notifier] Skipped habit_reminder #${claimed.id} (already completed today or archived; next day queued)`
@@ -357,7 +395,6 @@ export class NotifierWorker {
         }
         htmlToSend = prepared.htmlText;
         habitToRoll = prepared.habitToRoll;
-        habitTimeZone = prepared.timeZone;
       } else if (claimed.entity_type === "goal_milestone") {
         htmlToSend = ensureGoalsLinkOnHtml(
           claimed.message_text.includes("<b>")
@@ -370,9 +407,9 @@ export class NotifierWorker {
       }
 
       try {
-        const result = await sendTelegramPush({
+        const fanout = await sendTelegramPushFanout({
           botToken: this.options.telegramBotToken,
-          chatId,
+          chatIds: targetChatIds,
           htmlText: htmlToSend,
         });
 
@@ -386,10 +423,9 @@ export class NotifierWorker {
           }
         }
 
-        // Roll recurring daily habit reminder to tomorrow automatically after sending today's push
         if (habitToRoll && !habitToRoll.is_archived && habitToRoll.reminder_time) {
           await syncHabitReminderToQueue(db, habitToRoll, {
-            timeZone: habitTimeZone,
+            timeZone,
           }).catch((err) => {
             console.error(
               `[notifier] Failed scheduling next-day habit_reminder for habit #${habitToRoll.id}:`,
@@ -398,10 +434,14 @@ export class NotifierWorker {
           });
         }
 
+        const deliveredSummary =
+          fanout.delivered.length > 0
+            ? fanout.delivered.map((d) => `${d.chatId}:#${d.messageId}`).join(", ")
+            : "skipped-uninitiated-only";
         console.info(
-          `[notifier] Delivered reminder #${claimed.id} (${claimed.entity_type}) -> Telegram msg #${result.messageId}`
+          `[notifier] Processed reminder #${claimed.id} (${claimed.entity_type}) -> [${deliveredSummary}]`
         );
-        return true;
+        return fanout.delivered.length > 0;
       } catch (sendErr) {
         const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
         await markReminderFailed(db, reminderId, errMsg).catch(() => undefined);

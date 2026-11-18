@@ -14,6 +14,7 @@ import {
   deleteOrArchiveFinanceAccount,
   getFinanceAnalytics,
   getPrimaryFinanceAccount,
+  listFinanceCategories,
   markObligationPaid,
   recordDebtPayment,
   setBalanceViewMode,
@@ -63,8 +64,10 @@ export async function fetchFinanceMonthAnalyticsAction(
 export interface SaveFinanceTransactionPayload {
   id?: number;
   account_id?: number | null;
+  new_account_name?: string | null;
   to_account_id?: number | null;
   category_id?: number | null;
+  new_category_name?: string | null;
   kind: FinanceTransactionKind;
   amount: number;
   occurred_at?: string | null;
@@ -87,16 +90,63 @@ export async function saveFinanceTransactionAction(
 
   let accountId = payload.account_id ?? null;
   if (!accountId) {
+    const requestedAccName = payload.new_account_name?.trim();
     const primary = await getPrimaryFinanceAccount(db);
-    if (!primary) {
-      throw new Error("Сначала создай хотя бы один финансовый счёт");
+    if (primary && !requestedAccName) {
+      accountId = primary.id;
+    } else {
+      const createdAcc = await createFinanceAccount(db, {
+        user_id: userId,
+        name: requestedAccName || "Основной счёт",
+        account_type: "debit",
+        balance: 0,
+        currency: "RUB",
+        credit_limit: null,
+        statement_debt: 0,
+        grace_period_due_date: null,
+        protected_reserve: 0,
+        include_in_total: true,
+        include_in_safe_to_spend: true,
+      });
+      accountId = createdAcc.id;
     }
-    accountId = primary.id;
   }
 
   if (payload.kind === "transfer") {
     if (!payload.to_account_id || payload.to_account_id === accountId) {
       throw new Error("Выбери другой счёт получателя для перевода");
+    }
+  }
+
+  let resolvedCategoryId: number | null =
+    payload.kind === "transfer" ? null : payload.category_id ?? null;
+  const inlineCategoryName = payload.new_category_name?.trim();
+
+  if (payload.kind !== "transfer" && !resolvedCategoryId && inlineCategoryName) {
+    const targetCatKind: FinanceCategoryKind =
+      payload.kind === "income" || payload.kind === "reimbursement_in"
+        ? "income"
+        : "expense";
+    const existingCats = await listFinanceCategories(db, targetCatKind, true);
+    const matched = existingCats.find(
+      (c) => c.name.trim().toLowerCase() === inlineCategoryName.toLowerCase()
+    );
+    if (matched) {
+      if (matched.is_archived) {
+        await updateFinanceCategory(db, matched.id, { is_archived: false });
+      }
+      resolvedCategoryId = matched.id;
+    } else {
+      const createdCat = await createFinanceCategory(db, {
+        user_id: userId,
+        kind: targetCatKind,
+        name: inlineCategoryName,
+        icon_name: "receipt",
+        color_token: "domain-finance",
+        monthly_limit: null,
+        voice_aliases: [],
+      });
+      resolvedCategoryId = createdCat.id;
     }
   }
 
@@ -140,8 +190,7 @@ export async function saveFinanceTransactionAction(
     account_id: accountId,
     to_account_id:
       payload.kind === "transfer" ? payload.to_account_id ?? null : null,
-    category_id:
-      payload.kind === "transfer" ? null : payload.category_id ?? null,
+    category_id: resolvedCategoryId,
     kind: payload.kind,
     amount,
     occurred_at: occurredIso,

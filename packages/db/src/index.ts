@@ -8,3 +8,4 @@ export * from "./finance";
 export * from "./nutrition";
 export * from "./health";
 export * from "./goals";
+export * from "./onboarding";

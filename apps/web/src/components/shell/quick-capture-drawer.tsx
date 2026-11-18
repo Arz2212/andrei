@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   AlertTriangleIcon,
@@ -95,7 +96,9 @@ export function QuickCaptureDrawer({
   const [txKind, setTxKind] = React.useState<"expense" | "income">("expense");
   const [txAmount, setTxAmount] = React.useState("");
   const [txAccountId, setTxAccountId] = React.useState("");
+  const [txNewAccountName, setTxNewAccountName] = React.useState("");
   const [txCategoryId, setTxCategoryId] = React.useState("none");
+  const [txNewCategoryName, setTxNewCategoryName] = React.useState("");
   const [txDescription, setTxDescription] = React.useState("");
   const [txNature, setTxNature] = React.useState<SpendNature>("personal");
 
@@ -199,19 +202,33 @@ export function QuickCaptureDrawer({
             toast.error("Укажи сумму больше нуля");
             return;
           }
+          const useInlineCat =
+            (filteredFinanceCategories.length === 0 ||
+              txCategoryId === "__new__") &&
+            txNewCategoryName.trim().length > 0;
           await saveFinanceTransactionAction({
             kind: txKind,
             amount: parsedAmount,
             account_id: txAccountId ? Number(txAccountId) : null,
+            new_account_name:
+              financeAccounts.length === 0
+                ? txNewAccountName.trim() || "Основной счёт"
+                : null,
             category_id:
-              txCategoryId && txCategoryId !== "none"
+              txCategoryId &&
+              txCategoryId !== "none" &&
+              txCategoryId !== "__new__"
                 ? Number(txCategoryId)
                 : null,
+            new_category_name: useInlineCat ? txNewCategoryName.trim() : null,
             description: txDescription.trim() || null,
             spend_nature: txKind === "expense" ? txNature : "personal",
           });
           setTxAmount("");
           setTxDescription("");
+          setTxNewAccountName("");
+          setTxNewCategoryName("");
+          setTxCategoryId("none");
           setTxNature("personal");
           toast.success(
             txKind === "expense" ? "Расход записан" : "Доход записан"
@@ -532,42 +549,101 @@ export function QuickCaptureDrawer({
                   </Field>
 
                   <Field>
-                    <FieldLabel>Счёт</FieldLabel>
-                    <Select value={txAccountId} onValueChange={setTxAccountId}>
-                      <SelectTrigger className="min-h-11 w-full">
-                        <SelectValue placeholder="Основной счёт" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {financeAccounts.map((a) => (
-                            <SelectItem key={a.id} value={String(a.id)}>
-                              {a.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center justify-between gap-1">
+                      <FieldLabel>
+                        {financeAccounts.length === 0 ? "Новый счёт" : "Счёт"}
+                      </FieldLabel>
+                      {financeAccounts.length === 0 ? (
+                        <Link
+                          href="/finance?tab=accounts"
+                          onClick={() => onOpenChange(false)}
+                          className="text-[11px] font-medium text-primary hover:underline"
+                        >
+                          Счета →
+                        </Link>
+                      ) : null}
+                    </div>
+                    {financeAccounts.length === 0 ? (
+                      <Input
+                        value={txNewAccountName}
+                        onChange={(e) => setTxNewAccountName(e.target.value)}
+                        placeholder="Основной счёт"
+                        className="min-h-11"
+                      />
+                    ) : (
+                      <Select value={txAccountId} onValueChange={setTxAccountId}>
+                        <SelectTrigger className="min-h-11 w-full">
+                          <SelectValue placeholder="Основной счёт" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {financeAccounts.map((a) => (
+                              <SelectItem key={a.id} value={String(a.id)}>
+                                {a.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </Field>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field>
-                    <FieldLabel>Категория</FieldLabel>
-                    <Select value={txCategoryId} onValueChange={setTxCategoryId}>
-                      <SelectTrigger className="min-h-11 w-full">
-                        <SelectValue placeholder="Без категории" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="none">Без категории</SelectItem>
-                          {filteredFinanceCategories.map((c) => (
-                            <SelectItem key={c.id} value={String(c.id)}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
+                    <FieldLabel>
+                      {filteredFinanceCategories.length === 0
+                        ? "Категория (создастся сама)"
+                        : "Категория"}
+                    </FieldLabel>
+                    {filteredFinanceCategories.length === 0 ? (
+                      <Input
+                        value={txNewCategoryName}
+                        onChange={(e) => setTxNewCategoryName(e.target.value)}
+                        placeholder={
+                          txKind === "income"
+                            ? "Например: Доход / Проект"
+                            : "Например: Продукты / Кафе"
+                        }
+                        className="min-h-11"
+                      />
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <Select
+                          value={txCategoryId}
+                          onValueChange={(val) => {
+                            setTxCategoryId(val);
+                            if (val !== "__new__") setTxNewCategoryName("");
+                          }}
+                        >
+                          <SelectTrigger className="min-h-11 w-full">
+                            <SelectValue placeholder="Без категории" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="none">Без категории</SelectItem>
+                              <SelectItem value="__new__">
+                                + Новая категория…
+                              </SelectItem>
+                              {filteredFinanceCategories.map((c) => (
+                                <SelectItem key={c.id} value={String(c.id)}>
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        {txCategoryId === "__new__" ? (
+                          <Input
+                            value={txNewCategoryName}
+                            onChange={(e) => setTxNewCategoryName(e.target.value)}
+                            placeholder="Название новой категории"
+                            required
+                            className="min-h-10"
+                          />
+                        ) : null}
+                      </div>
+                    )}
                   </Field>
 
                   <Field>

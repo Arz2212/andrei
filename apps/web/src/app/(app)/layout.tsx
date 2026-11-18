@@ -41,7 +41,7 @@ export default async function ProtectedAppLayout({
     <React.Suspense fallback={null}>
       <AppShell
         todayDate={todayDate}
-        displayName={profile?.display_name ?? "Андрей"}
+        displayName={profile?.display_name ?? "Владелец"}
         waitingCount={waitingTasks.length}
         pendingActionsCount={pendingActions.length}
         financeAccounts={financeAccounts}

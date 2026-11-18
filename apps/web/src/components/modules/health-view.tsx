@@ -579,8 +579,35 @@ export function HealthView({ initialTab, data }: HealthViewProps) {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {data.programs.map((prog) => {
+          {data.programs.length === 0 ? (
+            <Card className="rounded-2xl shadow-none">
+              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                <DumbbellIcon className="size-8 text-muted-foreground/60" />
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium">
+                    Программы тренировок ещё не созданы
+                  </p>
+                  <p className="max-w-md text-xs text-muted-foreground">
+                    Создай свою программу (например, 2 или 3 тренировки в неделю), чтобы раскладывать неделю на плавающие окна в один клик.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setEditingProgram(null);
+                    setProgramModalOpen(true);
+                  }}
+                  className="min-h-10 rounded-xl"
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Создать первую программу
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {data.programs.map((prog) => {
               const days = Array.isArray(prog.program_structure)
                 ? (prog.program_structure as unknown as WorkoutProgramDayTemplate[])
                 : [];
@@ -655,7 +682,8 @@ export function HealthView({ initialTab, data }: HealthViewProps) {
                 </Card>
               );
             })}
-          </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* ================================================================ */}
@@ -1005,8 +1033,35 @@ export function HealthView({ initialTab, data }: HealthViewProps) {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {data.doctors.map((doc) => {
+          {data.doctors.length === 0 ? (
+            <Card className="rounded-2xl shadow-none">
+              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                <StethoscopeIcon className="size-8 text-muted-foreground/60" />
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium">
+                    Справочник врачей и клиник пуст
+                  </p>
+                  <p className="max-w-md text-xs text-muted-foreground">
+                    Добавь лечащих врачей и контакты клиник, чтобы привязывать к ним визиты, анализы и плановые осмотры.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setEditingDoctor(null);
+                    setDoctorModalOpen(true);
+                  }}
+                  className="min-h-10 rounded-xl"
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Добавить врача
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {data.doctors.map((doc) => {
               const visitsCount = recordCountByDoctor.get(doc.id) ?? 0;
               return (
                 <Card
@@ -1055,7 +1110,8 @@ export function HealthView({ initialTab, data }: HealthViewProps) {
                 </Card>
               );
             })}
-          </div>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

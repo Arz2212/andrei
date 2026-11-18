@@ -954,6 +954,27 @@ export function TasksView({
                 })()}
               </CardContent>
             </Card>
+          ) : projects.length === 0 ? (
+            <Card className="rounded-2xl shadow-none">
+              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                <FolderPlusIcon className="size-8 text-muted-foreground/60" />
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium">Проектов пока нет</p>
+                  <p className="max-w-md text-xs text-muted-foreground">
+                    Создай проект под рабочий запуск, учёбу или важную личную сферу, чтобы сгруппировать связанные задачи.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => openProjectModal(null)}
+                  className="min-h-10 rounded-xl"
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Создать первый проект
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               {projects.map((proj) => {

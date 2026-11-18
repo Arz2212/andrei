@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Loader2Icon, PlusIcon, Trash2Icon } from "lucide-react";
+import { Loader2Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import type {
   BillingPeriod,
   DebtDirection,
@@ -80,8 +80,10 @@ export function TransactionFormModal({
   const [kind, setKind] = React.useState<FinanceTransactionKind>(defaultKind);
   const [amount, setAmount] = React.useState("");
   const [accountId, setAccountId] = React.useState("");
+  const [newAccountName, setNewAccountName] = React.useState("");
   const [toAccountId, setToAccountId] = React.useState("");
   const [categoryId, setCategoryId] = React.useState("none");
+  const [newCategoryName, setNewCategoryName] = React.useState("");
   const [occurredDate, setOccurredDate] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [spendNature, setSpendNature] = React.useState<SpendNature>("personal");
@@ -99,12 +101,14 @@ export function TransactionFormModal({
       setKind(transaction.kind as FinanceTransactionKind);
       setAmount(String(transaction.amount));
       setAccountId(String(transaction.account_id));
+      setNewAccountName("");
       setToAccountId(
         transaction.to_account_id ? String(transaction.to_account_id) : ""
       );
       setCategoryId(
         transaction.category_id ? String(transaction.category_id) : "none"
       );
+      setNewCategoryName("");
       setOccurredDate(transaction.occurred_at.slice(0, 10));
       setDescription(transaction.description ?? "");
       setSpendNature(
@@ -122,6 +126,7 @@ export function TransactionFormModal({
       setKind(defaultKind);
       setAmount("");
       setAccountId(fallbackAccId ? String(fallbackAccId) : "");
+      setNewAccountName("");
       const secondAcc = accounts.find((a) => a.id !== fallbackAccId);
       setToAccountId(
         defaultToAccountId
@@ -131,6 +136,7 @@ export function TransactionFormModal({
             : ""
       );
       setCategoryId("none");
+      setNewCategoryName("");
       setOccurredDate(new Date().toISOString().slice(0, 10));
       setDescription("");
       setSpendNature("personal");
@@ -171,14 +177,27 @@ export function TransactionFormModal({
     e.preventDefault();
     startTransition(async () => {
       try {
+        const useInlineCategory =
+          kind !== "transfer" &&
+          (filteredCategories.length === 0 || categoryId === "__new__") &&
+          newCategoryName.trim().length > 0;
+
         await saveFinanceTransactionAction({
           id: transaction?.id,
           kind,
           amount: Number(amount),
           account_id: accountId ? Number(accountId) : null,
+          new_account_name:
+            accounts.length === 0
+              ? newAccountName.trim() || "Основной счёт"
+              : null,
           to_account_id:
             kind === "transfer" && toAccountId ? Number(toAccountId) : null,
-          category_id: categoryId !== "none" ? Number(categoryId) : null,
+          category_id:
+            categoryId !== "none" && categoryId !== "__new__"
+              ? Number(categoryId)
+              : null,
+          new_category_name: useInlineCategory ? newCategoryName.trim() : null,
           occurred_at: occurredDate ? `${occurredDate}T12:00:00` : null,
           description,
           spend_nature: kind === "expense" ? spendNature : "personal",
@@ -288,66 +307,124 @@ export function TransactionFormModal({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field>
               <FieldLabel>
-                {kind === "transfer"
-                  ? "Со счёта"
-                  : kind === "income"
-                    ? "Зачислить на счёт"
-                    : "Списать со счёта"}
+                {accounts.length === 0
+                  ? "Новый счёт (создастся автоматически)"
+                  : kind === "transfer"
+                    ? "Со счёта"
+                    : kind === "income"
+                      ? "Зачислить на счёт"
+                      : "Списать со счёта"}
               </FieldLabel>
-              <Select value={accountId} onValueChange={setAccountId}>
-                <SelectTrigger className="min-h-11 w-full">
-                  <SelectValue placeholder="Выбери счёт" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {accounts.map((acc) => (
-                      <SelectItem key={acc.id} value={String(acc.id)}>
-                        {acc.name} ({formatRub(acc.balance)})
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-
-            {kind === "transfer" ? (
-              <Field>
-                <FieldLabel>На счёт (или погашение кредитки)</FieldLabel>
-                <Select value={toAccountId} onValueChange={setToAccountId}>
+              {accounts.length === 0 ? (
+                <Input
+                  value={newAccountName}
+                  onChange={(e) => setNewAccountName(e.target.value)}
+                  placeholder="Основной счёт (или введи название карты)"
+                  className="min-h-11"
+                />
+              ) : (
+                <Select value={accountId} onValueChange={setAccountId}>
                   <SelectTrigger className="min-h-11 w-full">
-                    <SelectValue placeholder="Выбери счёт получателя" />
+                    <SelectValue placeholder="Выбери счёт" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {accounts
-                        .filter((a) => String(a.id) !== accountId)
-                        .map((acc) => (
-                          <SelectItem key={acc.id} value={String(acc.id)}>
-                            {acc.name}
-                          </SelectItem>
-                        ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            ) : (
-              <Field>
-                <FieldLabel>Категория</FieldLabel>
-                <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger className="min-h-11 w-full">
-                    <SelectValue placeholder="Без категории" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="none">Без категории</SelectItem>
-                      {filteredCategories.map((cat) => (
-                        <SelectItem key={cat.id} value={String(cat.id)}>
-                          {cat.name}
+                      {accounts.map((acc) => (
+                        <SelectItem key={acc.id} value={String(acc.id)}>
+                          {acc.name} ({formatRub(acc.balance)})
                         </SelectItem>
                       ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
+              )}
+            </Field>
+
+            {kind === "transfer" ? (
+              <Field>
+                <FieldLabel>На счёт (или погашение кредитки)</FieldLabel>
+                {accounts.length < 2 ? (
+                  <div className="flex min-h-11 items-center rounded-xl border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    Для перевода между счетами создай минимум 2 счёта во вкладке «Счета».
+                  </div>
+                ) : (
+                  <Select value={toAccountId} onValueChange={setToAccountId}>
+                    <SelectTrigger className="min-h-11 w-full">
+                      <SelectValue placeholder="Выбери счёт получателя" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {accounts
+                          .filter((a) => String(a.id) !== accountId)
+                          .map((acc) => (
+                            <SelectItem key={acc.id} value={String(acc.id)}>
+                              {acc.name}
+                            </SelectItem>
+                          ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              </Field>
+            ) : (
+              <Field>
+                <FieldLabel>
+                  {filteredCategories.length === 0
+                    ? "Новая категория (необязательно)"
+                    : "Категория"}
+                </FieldLabel>
+                {filteredCategories.length === 0 ? (
+                  <Input
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder={
+                      kind === "income"
+                        ? "Например: Зарплата, Фриланс (или оставь пустым)"
+                        : "Например: Продукты, Кафе, Транспорт"
+                    }
+                    className="min-h-11"
+                  />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <Select
+                      value={categoryId}
+                      onValueChange={(val) => {
+                        setCategoryId(val);
+                        if (val !== "__new__") setNewCategoryName("");
+                      }}
+                    >
+                      <SelectTrigger className="min-h-11 w-full">
+                        <SelectValue placeholder="Без категории" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">Без категории</SelectItem>
+                          <SelectItem value="__new__">
+                            + Создать новую категорию…
+                          </SelectItem>
+                          {filteredCategories.map((cat) => (
+                            <SelectItem key={cat.id} value={String(cat.id)}>
+                              {cat.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    {categoryId === "__new__" ? (
+                      <Input
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        placeholder={
+                          kind === "income"
+                            ? "Название новой категории дохода"
+                            : "Название новой категории расхода"
+                        }
+                        required
+                        className="min-h-10"
+                      />
+                    ) : null}
+                  </div>
+                )}
               </Field>
             )}
           </div>
@@ -1567,15 +1644,43 @@ export function CategoriesManageModal({
 }: CategoriesManageModalProps) {
   const [pending, startTransition] = React.useTransition();
   const [kind, setKind] = React.useState<FinanceCategoryKind>("expense");
+  const [editingCat, setEditingCat] = React.useState<FinanceCategory | null>(
+    null
+  );
   const [name, setName] = React.useState("");
   const [monthlyLimit, setMonthlyLimit] = React.useState("");
   const [aliasesText, setAliasesText] = React.useState("");
 
-  function handleCreate(e: React.FormEvent) {
+  React.useEffect(() => {
+    if (!open) {
+      setEditingCat(null);
+      setName("");
+      setMonthlyLimit("");
+      setAliasesText("");
+    }
+  }, [open]);
+
+  function startEditCategory(cat: FinanceCategory) {
+    setEditingCat(cat);
+    setKind(cat.kind as FinanceCategoryKind);
+    setName(cat.name);
+    setMonthlyLimit(cat.monthly_limit ? String(cat.monthly_limit) : "");
+    setAliasesText((cat.voice_aliases ?? []).join(", "));
+  }
+
+  function resetDraft() {
+    setEditingCat(null);
+    setName("");
+    setMonthlyLimit("");
+    setAliasesText("");
+  }
+
+  function handleSave(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
       try {
         await saveFinanceCategoryAction({
+          id: editingCat?.id,
           kind,
           name,
           monthly_limit: monthlyLimit ? Number(monthlyLimit) : null,
@@ -1584,10 +1689,8 @@ export function CategoriesManageModal({
             .map((a) => a.trim())
             .filter(Boolean),
         });
-        setName("");
-        setMonthlyLimit("");
-        setAliasesText("");
-        toast.success("Категория сохранена");
+        resetDraft();
+        toast.success(editingCat ? "Категория обновлена" : "Категория создана");
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Ошибка сохранения");
       }
@@ -1600,120 +1703,163 @@ export function CategoriesManageModal({
     <ResponsiveModal
       open={open}
       onOpenChange={onOpenChange}
-      title="Категории и голосовые синонимы"
-      description="Голосовые синонимы помогают ассистенту в Telegram безошибочно распознавать категории из речи."
+      title="Категории расходов и доходов"
+      description="Создай собственные категории с месячными лимитами и голосовыми синонимами для Telegram."
     >
       <div className="flex flex-col gap-4">
         <ToggleGroup
           type="single"
           value={kind}
-          onValueChange={(v) => v && setKind(v as FinanceCategoryKind)}
+          onValueChange={(v) => {
+            if (v) {
+              setKind(v as FinanceCategoryKind);
+              if (editingCat && editingCat.kind !== v) resetDraft();
+            }
+          }}
           variant="outline"
           spacing={1}
           className="grid w-full grid-cols-2 gap-1"
         >
           <ToggleGroupItem value="expense" className="min-h-10">
-            Расходы
+            Расход
           </ToggleGroupItem>
           <ToggleGroupItem value="income" className="min-h-10">
-            Доходы
+            Доход
           </ToggleGroupItem>
         </ToggleGroup>
 
-        <div className="flex max-h-[240px] flex-col gap-2 overflow-y-auto pr-1">
-          {visible.map((cat) => (
-            <div
-              key={cat.id}
-              className="flex items-start justify-between gap-2 rounded-xl border border-border/80 p-3"
-            >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{cat.name}</span>
-                  {cat.monthly_limit ? (
-                    <Badge variant="secondary" className="num-tabular">
-                      лимит {formatRub(cat.monthly_limit)}
-                    </Badge>
+        {visible.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            Категорий типа «{kind === "expense" ? "Расход" : "Доход"}» пока нет. Добавь первую категорию ниже — она сразу появится в операциях и у ИИ-напарника.
+          </div>
+        ) : (
+          <div className="flex max-h-[240px] flex-col gap-2 overflow-y-auto pr-1">
+            {visible.map((cat) => (
+              <div
+                key={cat.id}
+                className="flex items-start justify-between gap-2 rounded-xl border border-border/80 p-3"
+              >
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{cat.name}</span>
+                    {cat.monthly_limit ? (
+                      <Badge variant="secondary" className="num-tabular">
+                        бюджет {formatRub(cat.monthly_limit)}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  {cat.voice_aliases && cat.voice_aliases.length > 0 ? (
+                    <span className="truncate text-xs text-muted-foreground">
+                      Синонимы: {cat.voice_aliases.join(", ")}
+                    </span>
                   ) : null}
                 </div>
-                {cat.voice_aliases && cat.voice_aliases.length > 0 ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    Синонимы: {cat.voice_aliases.join(", ")}
-                  </span>
-                ) : null}
-              </div>
 
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={() =>
-                  startTransition(async () => {
-                    await deleteFinanceCategoryAction(cat.id);
-                    toast("Категория удалена");
-                  })
-                }
-                aria-label={`Удалить категорию ${cat.name}`}
-              >
-                <Trash2Icon className="size-3.5 text-muted-foreground" />
-              </Button>
-            </div>
-          ))}
-        </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => startEditCategory(cat)}
+                    aria-label={`Изменить категорию ${cat.name}`}
+                  >
+                    <PencilIcon className="size-3.5 text-muted-foreground" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() =>
+                      startTransition(async () => {
+                        await deleteFinanceCategoryAction(cat.id);
+                        if (editingCat?.id === cat.id) resetDraft();
+                        toast("Категория удалена");
+                      })
+                    }
+                    aria-label={`Удалить категорию ${cat.name}`}
+                  >
+                    <Trash2Icon className="size-3.5 text-muted-foreground" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <Separator />
 
-        <form onSubmit={handleCreate} className="flex flex-col gap-3">
+        <form onSubmit={handleSave} className="flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="cat-name">Новая категория</FieldLabel>
+              <FieldLabel htmlFor="cat-name">
+                {editingCat ? "Редактировать категорию" : "Название категории"}
+              </FieldLabel>
               <Input
                 id="cat-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Например: Образование"
+                placeholder={
+                  kind === "expense"
+                    ? "Например: Продукты, Жильё, Образование"
+                    : "Например: Зарплата, Консалтинг"
+                }
                 required
                 className="min-h-10"
               />
             </Field>
 
-            {kind === "expense" ? (
-              <Field>
-                <FieldLabel htmlFor="cat-lim">Лимит в месяц (₽)</FieldLabel>
-                <Input
-                  id="cat-lim"
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={monthlyLimit}
-                  onChange={(e) => setMonthlyLimit(e.target.value)}
-                  placeholder="Опционально"
-                  className="min-h-10 num-tabular"
-                />
-              </Field>
-            ) : null}
+            <Field>
+              <FieldLabel htmlFor="cat-lim">
+                {kind === "expense"
+                  ? "Месячный бюджет / лимит (₽)"
+                  : "Плановый ориентир в месяц (₽)"}
+              </FieldLabel>
+              <Input
+                id="cat-lim"
+                type="number"
+                min={0}
+                step="any"
+                value={monthlyLimit}
+                onChange={(e) => setMonthlyLimit(e.target.value)}
+                placeholder="Опционально"
+                className="min-h-10 num-tabular"
+              />
+            </Field>
           </div>
 
           <Field>
             <FieldLabel htmlFor="cat-aliases">
-              Голосовые ключевые слова (через запятую)
+              Голосовые синонимы для Telegram (через запятую)
             </FieldLabel>
             <Input
               id="cat-aliases"
               value={aliasesText}
               onChange={(e) => setAliasesText(e.target.value)}
-              placeholder="курсы, книги, репетитор"
+              placeholder="супермаркет, еда, доставка"
               className="min-h-10"
             />
           </Field>
 
-          <Button
-            type="submit"
-            disabled={pending}
-            className="min-h-11 w-full rounded-xl"
-          >
-            <PlusIcon data-icon="inline-start" />
-            Добавить категорию
-          </Button>
+          <div className="flex items-center gap-2">
+            {editingCat ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resetDraft}
+                className="min-h-11 rounded-xl"
+              >
+                Отмена
+              </Button>
+            ) : null}
+            <Button
+              type="submit"
+              disabled={pending}
+              className="min-h-11 flex-1 rounded-xl"
+            >
+              <PlusIcon data-icon="inline-start" />
+              {editingCat ? "Сохранить категорию" : "Добавить категорию"}
+            </Button>
+          </div>
         </form>
       </div>
     </ResponsiveModal>

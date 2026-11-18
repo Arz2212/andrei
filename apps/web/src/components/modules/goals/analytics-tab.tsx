@@ -282,9 +282,18 @@ export function AnalyticsTab({
         </CardHeader>
         <CardContent className="flex flex-col gap-2.5 px-4 py-0 sm:px-5">
           {summary.proactiveInsights.length === 0 ? (
-            <div className="rounded-xl border border-domain-finance/25 bg-domain-finance/8 p-3 text-xs text-foreground">
-              Ритм устойчивый: активные цели обеспечены конкретными шагами, а нагрузка укладывается в буфер дня.
-            </div>
+            summary.goals.activeCount === 0 &&
+            summary.habits.todayTotal === 0 &&
+            summary.tasks.openCount === 0 &&
+            summary.tasks.completedCount === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/25 p-3 text-xs text-muted-foreground">
+                Чистый лист: добавьте первые цели, привычки или задачи — напарник начнёт подсвечивать связки нагрузки, энергии и прогресса.
+              </div>
+            ) : (
+              <div className="rounded-xl border border-domain-finance/25 bg-domain-finance/8 p-3 text-xs text-foreground">
+                Ритм устойчивый: активные цели обеспечены конкретными шагами, а нагрузка укладывается в буфер дня.
+              </div>
+            )
           ) : (
             summary.proactiveInsights.map((insight) => {
               const sev =
@@ -389,56 +398,66 @@ export function AnalyticsTab({
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 py-0 sm:px-5">
-            <svg
-              viewBox={`0 0 ${svgW} ${svgH}`}
-              className="h-40 w-full overflow-visible"
-              role="img"
-              aria-label="График выполнения привычек по дням"
-            >
-              {/* 80% calm rhythm reference line */}
-              <line
-                x1={padX}
-                x2={svgW - padX}
-                y1={padY + (svgH - padY * 2) * 0.2}
-                y2={padY + (svgH - padY * 2) * 0.2}
-                stroke="var(--border)"
-                strokeDasharray="4 4"
-                strokeWidth="1"
-              />
-              {habitSeries.map((pt, idx) => {
-                const usableH = svgH - padY * 2;
-                const h = Math.max(3, (pt.pct / 100) * usableH);
-                const x = padX + idx * (barW + barGap);
-                const y = padY + usableH - h;
-                return (
-                  <rect
-                    key={pt.date}
-                    x={x}
-                    y={y}
-                    width={barW}
-                    height={h}
-                    rx={Math.min(5, barW / 2)}
-                    fill={
-                      pt.pct >= 75
-                        ? "var(--primary)"
-                        : pt.pct >= 40
-                          ? "var(--domain-nutrition)"
-                          : "var(--muted-foreground)"
-                    }
-                    fillOpacity={pt.pct === 0 ? 0.22 : 0.88}
-                  >
-                    <title>
-                      {formatDateShortRu(pt.date)}: {pt.done}/{pt.total} ({pt.pct}%)
-                    </title>
-                  </rect>
-                );
-              })}
-            </svg>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground num-tabular">
-              <span>{formatDateShortRu(summary.startDate)}</span>
-              <span>Ориентир устойчивости 80%</span>
-              <span>{formatDateShortRu(summary.endDate)}</span>
-            </div>
+            {summary.habits.todayTotal === 0 || habitSeries.length === 0 ? (
+              <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground">
+                Добавьте первую привычку, чтобы отслеживать ежедневный ритм
+              </div>
+            ) : (
+              <>
+                <svg
+                  viewBox={`0 0 ${svgW} ${svgH}`}
+                  className="h-40 w-full overflow-visible"
+                  role="img"
+                  aria-label="График выполнения привычек по дням"
+                >
+                  {/* 80% calm rhythm reference line */}
+                  <line
+                    x1={padX}
+                    x2={svgW - padX}
+                    y1={padY + (svgH - padY * 2) * 0.2}
+                    y2={padY + (svgH - padY * 2) * 0.2}
+                    stroke="var(--border)"
+                    strokeDasharray="4 4"
+                    strokeWidth="1"
+                  />
+                  {habitSeries.map((pt, idx) => {
+                    const usableH = svgH - padY * 2;
+                    const safePct = Number.isFinite(pt.pct) ? pt.pct : 0;
+                    const h = Math.max(3, (safePct / 100) * usableH);
+                    const x = padX + idx * (barW + barGap);
+                    const y = padY + usableH - h;
+                    return (
+                      <rect
+                        key={pt.date}
+                        x={x}
+                        y={y}
+                        width={barW}
+                        height={h}
+                        rx={Math.min(5, barW / 2)}
+                        fill={
+                          safePct >= 75
+                            ? "var(--primary)"
+                            : safePct >= 40
+                              ? "var(--domain-nutrition)"
+                              : "var(--muted-foreground)"
+                        }
+                        fillOpacity={safePct === 0 ? 0.22 : 0.88}
+                      >
+                        <title>
+                          {formatDateShortRu(pt.date)}: {pt.done}/{pt.total} (
+                          {safePct}%)
+                        </title>
+                      </rect>
+                    );
+                  })}
+                </svg>
+                <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground num-tabular">
+                  <span>{formatDateShortRu(summary.startDate)}</span>
+                  <span>Ориентир устойчивости 80%</span>
+                  <span>{formatDateShortRu(summary.endDate)}</span>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -453,73 +472,82 @@ export function AnalyticsTab({
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 py-0 sm:px-5">
-            <svg
-              viewBox={`0 0 ${svgW} ${svgH}`}
-              className="h-40 w-full overflow-visible"
-              role="img"
-              aria-label="Тренд энергии, настроения и напряжения"
-            >
-              {[0.25, 0.5, 0.75].map((ratio) => (
-                <line
-                  key={ratio}
-                  x1={padX}
-                  x2={svgW - padX}
-                  y1={padY + (svgH - padY * 2) * ratio}
-                  y2={padY + (svgH - padY * 2) * ratio}
-                  stroke="var(--border)"
-                  strokeDasharray="3 3"
-                  strokeWidth="1"
-                />
-              ))}
-              {energyLine.path ? (
-                <path
-                  d={energyLine.path}
-                  fill="none"
-                  stroke="var(--primary)"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ) : null}
-              {moodLine.path ? (
-                <path
-                  d={moodLine.path}
-                  fill="none"
-                  stroke="var(--domain-work)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ) : null}
-              {tensionLine.path ? (
-                <path
-                  d={tensionLine.path}
-                  fill="none"
-                  stroke="var(--domain-health)"
-                  strokeWidth="1.75"
-                  strokeDasharray="4 3"
-                  strokeLinecap="round"
-                />
-              ) : null}
-              {reviewLine.path ? (
-                <path
-                  d={reviewLine.path}
-                  fill="none"
-                  stroke="var(--domain-mind)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              ) : null}
-              {energyLine.coords.map((pt, i) => (
-                <circle
-                  key={i}
-                  cx={pt.x}
-                  cy={pt.y}
-                  r="3"
-                  fill="var(--primary)"
-                />
-              ))}
-            </svg>
+            {energyLine.coords.length === 0 &&
+            moodLine.coords.length === 0 &&
+            tensionLine.coords.length === 0 &&
+            reviewLine.coords.length === 0 ? (
+              <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground">
+                Отметьте пульс энергии или вечерний разбор, чтобы увидеть тренд
+              </div>
+            ) : (
+              <svg
+                viewBox={`0 0 ${svgW} ${svgH}`}
+                className="h-40 w-full overflow-visible"
+                role="img"
+                aria-label="Тренд энергии, настроения и напряжения"
+              >
+                {[0.25, 0.5, 0.75].map((ratio) => (
+                  <line
+                    key={ratio}
+                    x1={padX}
+                    x2={svgW - padX}
+                    y1={padY + (svgH - padY * 2) * ratio}
+                    y2={padY + (svgH - padY * 2) * ratio}
+                    stroke="var(--border)"
+                    strokeDasharray="3 3"
+                    strokeWidth="1"
+                  />
+                ))}
+                {energyLine.path ? (
+                  <path
+                    d={energyLine.path}
+                    fill="none"
+                    stroke="var(--primary)"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ) : null}
+                {moodLine.path ? (
+                  <path
+                    d={moodLine.path}
+                    fill="none"
+                    stroke="var(--domain-work)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ) : null}
+                {tensionLine.path ? (
+                  <path
+                    d={tensionLine.path}
+                    fill="none"
+                    stroke="var(--domain-health)"
+                    strokeWidth="1.75"
+                    strokeDasharray="4 3"
+                    strokeLinecap="round"
+                  />
+                ) : null}
+                {reviewLine.path ? (
+                  <path
+                    d={reviewLine.path}
+                    fill="none"
+                    stroke="var(--domain-mind)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                ) : null}
+                {energyLine.coords.map((pt, i) => (
+                  <circle
+                    key={i}
+                    cx={pt.x}
+                    cy={pt.y}
+                    r="3"
+                    fill="var(--primary)"
+                  />
+                ))}
+              </svg>
+            )}
 
             <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground num-tabular">
               <span className="inline-flex items-center gap-1">

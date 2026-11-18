@@ -250,7 +250,11 @@ export function GoalsTab({ goals, todayDate }: GoalsTabProps) {
       {filteredGoals.length === 0 ? (
         <Card className="rounded-2xl border-dashed py-8 text-center shadow-none">
           <CardContent className="flex flex-col items-center gap-2 py-0">
-            <p className="text-sm font-medium">Нет целей по выбранному фильтру</p>
+            <p className="text-sm font-medium">
+              {goals.length === 0
+                ? "Активных целей пока нет"
+                : "Нет целей по выбранному фильтру"}
+            </p>
             <p className="max-w-sm text-xs text-muted-foreground">
               Создайте цель по конкретным задачам, этапам или числовой метрике — прогресс будет обновляться от реальных действий.
             </p>

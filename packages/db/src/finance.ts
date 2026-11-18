@@ -478,10 +478,118 @@ export async function updateFinanceCategory(
 
 export async function deleteFinanceCategory(
   db: TypedSupabaseClient,
-  id: number
+  queryOrId: number | string
 ): Promise<void> {
-  const { error } = await db.from("finance_categories").delete().eq("id", id);
+  let targetId: number | null = null;
+  if (typeof queryOrId === "number" || /^\d+$/.test(String(queryOrId).trim())) {
+    targetId = Number(queryOrId);
+  } else {
+    const resolved = await resolveCategoryByFuzzyQuery(db, String(queryOrId));
+    targetId = resolved.category?.id ?? null;
+    if (!targetId) {
+      const archivedAll = await listFinanceCategories(db, undefined, true);
+      const normQ = normalizeTaskTitleForDedup(String(queryOrId));
+      const match = archivedAll.find((c) => normalizeTaskTitleForDedup(c.name) === normQ);
+      targetId = match?.id ?? null;
+    }
+  }
+
+  if (!targetId) {
+    throw new Error(`Категория «${queryOrId}» не найдена`);
+  }
+
+  const { error } = await db.from("finance_categories").delete().eq("id", targetId);
   if (error) throw error;
+}
+
+export interface UpsertFinanceCategoryInput {
+  id?: number;
+  query?: string;
+  name: string;
+  kind?: FinanceCategoryKind;
+  icon?: string;
+  icon_name?: string;
+  color_token?: string;
+  monthly_budget?: number | null;
+  monthly_limit?: number | null;
+  voice_aliases?: string[];
+  sort_order?: number;
+  is_archived?: boolean;
+}
+
+export async function upsertFinanceCategory(
+  db: TypedSupabaseClient,
+  userId: string,
+  input: UpsertFinanceCategoryInput
+): Promise<FinanceCategory> {
+  const cleanName = input.name?.trim();
+  if (!cleanName) {
+    throw new Error("Укажите название финансовой категории");
+  }
+
+  const kind: FinanceCategoryKind = input.kind ?? "expense";
+  const resolvedLimit =
+    input.monthly_limit !== undefined
+      ? input.monthly_limit
+      : input.monthly_budget !== undefined
+        ? input.monthly_budget
+        : undefined;
+  const resolvedIcon = input.icon_name ?? input.icon;
+
+  let targetId = input.id ?? null;
+  if (!targetId && input.query) {
+    const resolved = await resolveCategoryByFuzzyQuery(db, input.query, kind);
+    targetId = resolved.category?.id ?? null;
+  }
+
+  // Deduplicate exact (name + kind) if creating without an explicit id
+  if (!targetId) {
+    const existingAll = await listFinanceCategories(db, kind, true);
+    const normNew = normalizeTaskTitleForDedup(cleanName);
+    const exact = existingAll.find((c) => normalizeTaskTitleForDedup(c.name) === normNew);
+    if (exact) {
+      targetId = exact.id;
+    }
+  }
+
+  if (targetId) {
+    const patch: FinanceCategoryUpdate = {
+      name: cleanName,
+      is_archived: input.is_archived ?? false,
+    };
+    if (input.kind !== undefined) patch.kind = input.kind;
+    if (resolvedIcon !== undefined && resolvedIcon.trim()) {
+      patch.icon_name = resolvedIcon.trim();
+    }
+    if (input.color_token !== undefined && input.color_token.trim()) {
+      patch.color_token = input.color_token.trim();
+    }
+    if (resolvedLimit !== undefined) {
+      patch.monthly_limit =
+        resolvedLimit !== null && Number(resolvedLimit) > 0
+          ? roundMoney(Number(resolvedLimit))
+          : null;
+    }
+    if (input.voice_aliases !== undefined) patch.voice_aliases = input.voice_aliases;
+    if (input.sort_order !== undefined) patch.sort_order = input.sort_order;
+
+    return updateFinanceCategory(db, targetId, patch);
+  }
+
+  return createFinanceCategory(db, {
+    user_id: userId,
+    name: cleanName,
+    kind,
+    icon_name: resolvedIcon?.trim() || (kind === "income" ? "wallet" : "tag"),
+    color_token: input.color_token?.trim() || "domain-finance",
+    monthly_limit:
+      resolvedLimit !== undefined && resolvedLimit !== null && Number(resolvedLimit) > 0
+        ? roundMoney(Number(resolvedLimit))
+        : null,
+    voice_aliases: input.voice_aliases ?? [cleanName.toLowerCase()],
+    sort_order: input.sort_order ?? 10,
+    is_archived: Boolean(input.is_archived),
+  });
 }
 
 export async function resolveCategoryByFuzzyQuery(
@@ -1506,3 +1614,5 @@ export async function getFinanceDashboardData(
     analytics,
   };
 }
+
+export const getFinanceOverview = getFinanceDashboardData;
