@@ -8,6 +8,7 @@ import {
   addDaysToIsoDate,
   buildScheduledRangeFromClockTime,
   extractLocalTimeParts,
+  findGoalByQueryOrId,
   findProjectsByFuzzyQuery,
   findTasksByFuzzyQuery,
   formatIsoDate,
@@ -436,19 +437,8 @@ export async function resolveGoalRef(
   ref: number | string | null | undefined
 ): Promise<Goal | null> {
   if (ref === null || ref === undefined || ref === "") return null;
-  if (typeof ref === "number" || /^\d+$/.test(String(ref).trim())) {
-    const id = Number(ref);
-    const { data, error } = await db.from("goals").select("*").eq("id", id).maybeSingle();
-    if (error) throw error;
-    return data;
-  }
-  const q = String(ref).trim().toLowerCase().replace(/ё/g, "е");
-  const { data, error } = await db.from("goals").select("*").neq("status", "dropped");
-  if (error) throw error;
-  const match = (data ?? []).find((g) =>
-    g.title.toLowerCase().replace(/ё/g, "е").includes(q)
-  );
-  return match ?? null;
+  const resolved = await findGoalByQueryOrId(db, ref);
+  return resolved.goal;
 }
 
 /**

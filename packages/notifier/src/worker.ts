@@ -1,11 +1,16 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   claimDueReminder,
+  escapeTelegramHtml,
+  formatIsoDate,
   getOwnerBotDbClient,
+  getOwnerProfile,
   listRemindersQueue,
   markReminderFailed,
   markTaskReminderSent,
   resolveDefaultTelegramChatId,
+  syncHabitReminderToQueue,
+  type Habit,
   type ReminderEntityType,
   type ReminderQueueItem,
   type TypedSupabaseClient,
@@ -15,17 +20,23 @@ import { sendTelegramPush } from "./telegram-push";
 
 export const SUPPORTED_QUEUE_ENTITY_TYPES: readonly ReminderEntityType[] = [
   "task_start",
+  "task",
   "waiting_followup",
   "standalone_reminder",
+  "custom",
   "morning_digest",
   "evening_review",
+  "weekly_digest",
   "finance_obligation",
+  "obligation_due",
   "credit_grace",
   "debt_due",
   "medical_followup",
   "medical_visit",
   "workout_window",
   "pantry_expiry",
+  "habit_reminder",
+  "goal_milestone",
 ] as const;
 
 const HORIZON_MS = 65 * 60_000; // Arm exact setTimeout timers up to 65 minutes ahead
@@ -36,6 +47,14 @@ export interface NotifierWorkerOptions {
   telegramBotToken: string;
   ownerTelegramId: number;
   appUrl: string;
+}
+
+function ensureGoalsLinkOnHtml(htmlText: string, appUrl: string, linkLabel: string, pathSuffix = "/goals"): string {
+  if (htmlText.includes("<a href=")) {
+    return htmlText;
+  }
+  const safeHref = escapeTelegramHtml(`${appUrl}${pathSuffix}`);
+  return `${htmlText}\n\n🔗 <a href="${safeHref}">${escapeTelegramHtml(linkLabel)}</a>`;
 }
 
 export class NotifierWorker {
@@ -164,7 +183,9 @@ export class NotifierWorker {
       )
       .subscribe((status, err) => {
         if (status === "SUBSCRIBED") {
-          console.info("[notifier] Subscribed to Supabase Realtime (reminders_queue + assistant_settings)");
+          console.info(
+            "[notifier] Subscribed to Supabase Realtime (reminders_queue + assistant_settings)"
+          );
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.warn(
             `[notifier] Realtime channel status=${status}${err ? ` (${err.message})` : ""}; 60s sweep remains active`
@@ -189,7 +210,6 @@ export class NotifierWorker {
     const agePastDueMs = nowMs - triggerMs;
 
     if (agePastDueMs > STALE_CUTOFF_MS) {
-      // Stale reminder >24h old: cancel silently instead of surprising the user
       void this.cancelStaleReminder(row.id);
       return;
     }
@@ -225,6 +245,84 @@ export class NotifierWorker {
     }
   }
 
+  /**
+   * Handles daily `habit_reminder` check:
+   * - If the habit is already completed today (or archived), silently skips nagging and rolls tomorrow's reminder.
+   * - Otherwise returns formatted HTML + schedules tomorrow's rolling daily reminder after delivery.
+   */
+  private async prepareHabitReminderDelivery(
+    db: TypedSupabaseClient,
+    claimed: ReminderQueueItem
+  ): Promise<{ shouldSend: boolean; htmlText: string; habitToRoll: Habit | null; timeZone: string }> {
+    const profile = await getOwnerProfile(db);
+    const timeZone = profile?.timezone || "Europe/Moscow";
+    const habitId = claimed.entity_id ? Number(claimed.entity_id) : NaN;
+
+    if (!Number.isFinite(habitId) || habitId <= 0) {
+      return {
+        shouldSend: true,
+        htmlText: ensureGoalsLinkOnHtml(
+          claimed.message_text,
+          this.options.appUrl,
+          "Отметить в 1 тап в Life OS",
+          "/goals"
+        ),
+        habitToRoll: null,
+        timeZone,
+      };
+    }
+
+    const todayStr = formatIsoDate(new Date(), timeZone);
+    const [{ data: habit }, { data: todayLog }] = await Promise.all([
+      db.from("habits").select("*").eq("id", habitId).maybeSingle(),
+      db
+        .from("habit_logs")
+        .select("completed")
+        .eq("habit_id", habitId)
+        .eq("logged_date", todayStr)
+        .maybeSingle(),
+    ]);
+
+    if (!habit || habit.is_archived) {
+      return {
+        shouldSend: false,
+        htmlText: claimed.message_text,
+        habitToRoll: null,
+        timeZone,
+      };
+    }
+
+    if (todayLog?.completed) {
+      // Already completed today -> roll tomorrow's reminder silently without nagging!
+      await syncHabitReminderToQueue(db, habit, {
+        timeZone,
+        completedToday: true,
+      }).catch((err) => {
+        console.error(`[notifier] Failed rolling tomorrow's habit_reminder for habit #${habit.id}:`, err);
+      });
+      return {
+        shouldSend: false,
+        htmlText: claimed.message_text,
+        habitToRoll: null,
+        timeZone,
+      };
+    }
+
+    const htmlText = ensureGoalsLinkOnHtml(
+      claimed.message_text,
+      this.options.appUrl,
+      "Отметить в 1 тап в Life OS",
+      "/goals"
+    );
+
+    return {
+      shouldSend: true,
+      htmlText,
+      habitToRoll: habit,
+      timeZone,
+    };
+  }
+
   async deliverReminder(reminderId: number): Promise<boolean> {
     if (this.isStopped || this.inFlightIds.has(reminderId)) {
       return false;
@@ -245,18 +343,59 @@ export class NotifierWorker {
         claimed.telegram_chat_id || this.options.ownerTelegramId
       );
 
+      let htmlToSend = claimed.message_text;
+      let habitToRoll: Habit | null = null;
+      let habitTimeZone = "Europe/Moscow";
+
+      if (claimed.entity_type === "habit_reminder") {
+        const prepared = await this.prepareHabitReminderDelivery(db, claimed);
+        if (!prepared.shouldSend) {
+          console.info(
+            `[notifier] Skipped habit_reminder #${claimed.id} (already completed today or archived; next day queued)`
+          );
+          return false;
+        }
+        htmlToSend = prepared.htmlText;
+        habitToRoll = prepared.habitToRoll;
+        habitTimeZone = prepared.timeZone;
+      } else if (claimed.entity_type === "goal_milestone") {
+        htmlToSend = ensureGoalsLinkOnHtml(
+          claimed.message_text.includes("<b>")
+            ? claimed.message_text
+            : `🎯 <b>Веха цели</b>\n\n📌 <b>${escapeTelegramHtml(claimed.message_text)}</b>`,
+          this.options.appUrl,
+          "Открыть цели в Life OS",
+          "/goals?tab=goals"
+        );
+      }
+
       try {
         const result = await sendTelegramPush({
           botToken: this.options.telegramBotToken,
           chatId,
-          htmlText: claimed.message_text,
+          htmlText: htmlToSend,
         });
 
-        if (claimed.entity_type === "task_start" && claimed.entity_id) {
+        if (
+          (claimed.entity_type === "task_start" || claimed.entity_type === "task") &&
+          claimed.entity_id
+        ) {
           const numericTaskId = Number(claimed.entity_id);
           if (Number.isFinite(numericTaskId) && numericTaskId > 0) {
             await markTaskReminderSent(db, numericTaskId).catch(() => undefined);
           }
+        }
+
+        // Roll recurring daily habit reminder to tomorrow automatically after sending today's push
+        if (habitToRoll && !habitToRoll.is_archived && habitToRoll.reminder_time) {
+          await syncHabitReminderToQueue(db, habitToRoll, {
+            timeZone: habitTimeZone,
+          }).catch((err) => {
+            console.error(
+              `[notifier] Failed scheduling next-day habit_reminder for habit #${habitToRoll.id}:`,
+              err
+            );
+          });
         }
 
         console.info(

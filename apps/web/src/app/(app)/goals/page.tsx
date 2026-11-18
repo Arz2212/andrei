@@ -1,33 +1,41 @@
-import { requireOwnerSession } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
 import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  getGoalsDashboardData,
+  getLifeAnalyticsSummary,
+} from "@life-os/db";
+import { requireOwnerSession } from "@/lib/supabase/server";
+import { GoalsView } from "@/components/modules/goals/goals-view";
 
-export default async function GoalsStagePreviewPage() {
-  await requireOwnerSession();
+export default async function GoalsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; date?: string }>;
+}) {
+  const [{ db }, params] = await Promise.all([
+    requireOwnerSession(),
+    searchParams,
+  ]);
+
+  const timeZone = "Europe/Moscow";
+  const [data, analytics7, analytics30] = await Promise.all([
+    getGoalsDashboardData(db, {
+      anchorDate: params.date,
+      analyticsDays: 14,
+      includeArchivedHabits: false,
+      timeZone,
+    }),
+    getLifeAnalyticsSummary(db, params.date, 7, timeZone),
+    getLifeAnalyticsSummary(db, params.date, 30, timeZone),
+  ]);
+
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Цели и привычки</h1>
-          <p className="text-sm text-muted-foreground">
-            Таблицы целей, связи с задачами и 1-тап трекера привычек развёрнуты в Supabase
-          </p>
-        </div>
-        <Badge variant="secondary">Этап 4</Badge>
-      </div>
-      <Card className="rounded-2xl shadow-none">
-        <CardHeader>
-          <CardTitle className="text-base font-semibold">Модуль подготовлен в БД</CardTitle>
-          <CardDescription>
-            На Этапе 4 здесь откроется дерево целей с прогрессом по реальным действиям и быстрые трекеры привычек в один тап.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    </div>
+    <GoalsView
+      initialTab={params.tab}
+      data={data}
+      analyticsByWindow={{
+        7: analytics7,
+        14: data.analytics,
+        30: analytics30,
+      }}
+    />
   );
 }

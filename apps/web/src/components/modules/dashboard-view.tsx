@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import { toast } from "sonner";
 import {
   ArrowDownIcon,
@@ -12,6 +13,7 @@ import {
   ChefHatIcon,
   ClockIcon,
   DumbbellIcon,
+  FlameIcon,
   HourglassIcon,
   LayersIcon,
   MoonStarIcon,
@@ -22,6 +24,7 @@ import {
   SparklesIcon,
   SunIcon,
   SunsetIcon,
+  TargetIcon,
   UtensilsIcon,
   WalletIcon,
   XIcon,
@@ -38,6 +41,8 @@ import {
   type FinanceBalanceSummary,
   type FinanceCategory,
   type FinanceObligation,
+  type GoalLifeArea,
+  type HabitWithStats,
   type MealPlanEntryWithRecipe,
   type MealSlot,
   type PendingAction,
@@ -45,6 +50,8 @@ import {
   type ShoppingListItem,
   type StateCheckin,
   type Task,
+  type TodayGoalsSummary,
+  type TodayHabitsSummary,
   type UserProfile,
   type WidgetKey,
   type WorkoutPreferredSlot,
@@ -57,6 +64,7 @@ import {
   fetchDayScheduleAction,
   saveDashboardWidgetsAction,
   saveDayPlanAction,
+  toggleHomeHabitAction,
   toggleTaskAction,
   updateStateCheckinAction,
 } from "@/app/actions";
@@ -102,9 +110,11 @@ const WIDGET_LABELS: Record<WidgetKey, string> = {
   goals_progress: "Фокус целей",
 };
 
-const STAGE1_WIDGET_KEYS: WidgetKey[] = [
+const ACTIVE_WIDGET_KEYS: WidgetKey[] = [
   "now_focus",
   "state_pulse",
+  "habits_strip",
+  "goals_progress",
   "day_timeline",
   "waiting_radar",
   "day_slots_buffer",
@@ -113,6 +123,63 @@ const STAGE1_WIDGET_KEYS: WidgetKey[] = [
   "workout_window",
   "pending_confirmations",
 ];
+
+const GOAL_SPHERE_META: Record<
+  GoalLifeArea,
+  { label: string; dotClass: string; barClass: string }
+> = {
+  work: {
+    label: "Работа",
+    dotClass: "bg-domain-work",
+    barClass: "bg-domain-work",
+  },
+  study: {
+    label: "Учёба",
+    dotClass: "bg-domain-mind",
+    barClass: "bg-domain-mind",
+  },
+  launch: {
+    label: "Запуск",
+    dotClass: "bg-domain-finance",
+    barClass: "bg-domain-finance",
+  },
+  finance: {
+    label: "Финансы",
+    dotClass: "bg-domain-finance",
+    barClass: "bg-domain-finance",
+  },
+  health: {
+    label: "Здоровье",
+    dotClass: "bg-domain-health",
+    barClass: "bg-domain-health",
+  },
+  personal: {
+    label: "Личное",
+    dotClass: "bg-domain-nutrition",
+    barClass: "bg-domain-nutrition",
+  },
+};
+
+function getHabitCheckClasses(colorToken: string | null | undefined, done: boolean) {
+  if (!done) {
+    return "border-border bg-background text-transparent group-hover:border-primary/60";
+  }
+  switch (colorToken) {
+    case "domain-work":
+      return "border-domain-work bg-domain-work text-primary-foreground";
+    case "domain-mind":
+    case "domain-study":
+      return "border-domain-mind bg-domain-mind text-primary-foreground";
+    case "domain-finance":
+      return "border-domain-finance bg-domain-finance text-primary-foreground";
+    case "domain-nutrition":
+      return "border-domain-nutrition bg-domain-nutrition text-primary-foreground";
+    case "domain-health":
+      return "border-domain-health bg-domain-health text-primary-foreground";
+    default:
+      return "border-primary bg-primary text-primary-foreground";
+  }
+}
 
 // Sensible allowed desktop column spans per widget (on 12-col grid)
 const ALLOWED_SPANS_BY_WIDGET: Record<WidgetKey, number[]> = {
@@ -123,10 +190,10 @@ const ALLOWED_SPANS_BY_WIDGET: Record<WidgetKey, number[]> = {
   waiting_radar: [4, 6, 8],
   safe_to_spend: [4, 6, 8],
   pending_confirmations: [4, 6, 8],
-  habits_strip: [4, 6, 8],
+  habits_strip: [4, 6, 8, 12],
   workout_window: [4, 6, 8],
   today_meals: [4, 6, 8],
-  goals_progress: [4, 6, 8],
+  goals_progress: [4, 6, 8, 12],
 };
 
 const SPAN_SHORT_LABELS: Record<number, string> = {
@@ -172,6 +239,8 @@ interface DashboardViewProps {
   todayFoodDiary?: DayFoodDiary | null;
   uncheckedShoppingItems?: ShoppingListItem[];
   activeWorkoutWindows?: WorkoutSession[];
+  habitsSummary?: TodayHabitsSummary | null;
+  goalsSummary?: TodayGoalsSummary | null;
 }
 
 export function DashboardView({
@@ -192,6 +261,8 @@ export function DashboardView({
   todayFoodDiary = null,
   uncheckedShoppingItems = [],
   activeWorkoutWindows = [],
+  habitsSummary = null,
+  goalsSummary = null,
 }: DashboardViewProps) {
   const [, startTransition] = React.useTransition();
 
@@ -203,6 +274,42 @@ export function DashboardView({
         t.id === update.id ? { ...t, status: update.done ? "done" : "todo" } : t
       )
   );
+
+  // Optimistic 1-tap habits for today on Home
+  const [optimisticHabits, applyOptimisticHabit] = React.useOptimistic(
+    habitsSummary?.items ?? [],
+    (current: HabitWithStats[], update: { id: number; completed: boolean }) =>
+      current.map((h) => {
+        if (h.id !== update.id || h.completedOnAnchorDate === update.completed) {
+          return h;
+        }
+        const delta = update.completed ? 1 : -1;
+        const nextStreak = Math.max(0, h.currentStreak + delta);
+        return {
+          ...h,
+          completedOnAnchorDate: update.completed,
+          currentStreak: nextStreak,
+          bestStreak: Math.max(h.bestStreak, nextStreak),
+          thisWeekDone: Math.max(0, h.thisWeekDone + delta),
+        };
+      })
+  );
+
+  function handleToggleHomeHabit(habit: HabitWithStats) {
+    const nextCompleted = !habit.completedOnAnchorDate;
+    startTransition(async () => {
+      applyOptimisticHabit({ id: habit.id, completed: nextCompleted });
+      try {
+        await toggleHomeHabitAction({
+          habitId: habit.id,
+          date: todayDate,
+          completed: nextCompleted,
+        });
+      } catch {
+        toast.error("Не удалось обновить отметку привычки");
+      }
+    });
+  }
 
   // Day Timeline date navigation (defaults to todayDate, fetches past/future days on demand)
   const [timelineDate, setTimelineDate] = React.useState(todayDate);
@@ -298,13 +405,15 @@ export function DashboardView({
     const defaults: DashboardWidgetLayoutItem[] = [
       { widget_key: "now_focus", is_visible: true, desktop_order: 1, mobile_order: 1, desktop_col_span: 8 },
       { widget_key: "state_pulse", is_visible: true, desktop_order: 2, mobile_order: 2, desktop_col_span: 4 },
-      { widget_key: "day_timeline", is_visible: true, desktop_order: 3, mobile_order: 3, desktop_col_span: 8 },
-      { widget_key: "waiting_radar", is_visible: true, desktop_order: 4, mobile_order: 4, desktop_col_span: 4 },
-      { widget_key: "day_slots_buffer", is_visible: true, desktop_order: 5, mobile_order: 5, desktop_col_span: 6 },
-      { widget_key: "safe_to_spend", is_visible: true, desktop_order: 6, mobile_order: 6, desktop_col_span: 6 },
-      { widget_key: "today_meals", is_visible: true, desktop_order: 7, mobile_order: 7, desktop_col_span: 6 },
-      { widget_key: "workout_window", is_visible: true, desktop_order: 8, mobile_order: 8, desktop_col_span: 6 },
-      { widget_key: "pending_confirmations", is_visible: true, desktop_order: 9, mobile_order: 9, desktop_col_span: 6 },
+      { widget_key: "habits_strip", is_visible: true, desktop_order: 3, mobile_order: 3, desktop_col_span: 6 },
+      { widget_key: "goals_progress", is_visible: true, desktop_order: 4, mobile_order: 4, desktop_col_span: 6 },
+      { widget_key: "day_timeline", is_visible: true, desktop_order: 5, mobile_order: 5, desktop_col_span: 8 },
+      { widget_key: "waiting_radar", is_visible: true, desktop_order: 6, mobile_order: 6, desktop_col_span: 4 },
+      { widget_key: "day_slots_buffer", is_visible: true, desktop_order: 7, mobile_order: 7, desktop_col_span: 6 },
+      { widget_key: "safe_to_spend", is_visible: true, desktop_order: 8, mobile_order: 8, desktop_col_span: 6 },
+      { widget_key: "today_meals", is_visible: true, desktop_order: 9, mobile_order: 9, desktop_col_span: 6 },
+      { widget_key: "workout_window", is_visible: true, desktop_order: 10, mobile_order: 10, desktop_col_span: 6 },
+      { widget_key: "pending_confirmations", is_visible: true, desktop_order: 11, mobile_order: 11, desktop_col_span: 6 },
     ];
 
     return defaults
@@ -323,7 +432,7 @@ export function DashboardView({
             }
           : def;
       })
-      .filter((w) => STAGE1_WIDGET_KEYS.includes(w.widget_key))
+      .filter((w) => ACTIVE_WIDGET_KEYS.includes(w.widget_key))
       .sort((a, b) => a.desktop_order - b.desktop_order);
   }, [widgets]);
 
@@ -725,7 +834,7 @@ export function DashboardView({
                       <span className="text-muted-foreground">
                         Платежи (30 дн.)
                       </span>
-                      <span className="text-sm font-medium num-tabular">
+                      <span className="whitespace-nowrap text-sm font-medium num-tabular">
                         − {formatRub(upcomingOblTotal)}
                       </span>
                     </div>
@@ -733,7 +842,7 @@ export function DashboardView({
                       <span className="text-muted-foreground">
                         Жду компенсаций
                       </span>
-                      <span className="text-sm font-medium num-tabular">
+                      <span className="whitespace-nowrap text-sm font-medium num-tabular">
                         {formatRub(reimb)}
                       </span>
                     </div>
@@ -765,7 +874,7 @@ export function DashboardView({
                             </span>
                           ) : null}
                         </div>
-                        <span className="shrink-0 text-sm font-semibold num-tabular">
+                        <span className="shrink-0 whitespace-nowrap text-sm font-semibold num-tabular">
                           {isCredit
                             ? formatRub(availCredit)
                             : formatRub(acc.balance)}
@@ -778,19 +887,19 @@ export function DashboardView({
 
               {balanceMode === "total" ? (
                 <>
-                  <div className="text-3xl font-semibold tracking-tight num-tabular">
+                  <div className="whitespace-nowrap text-3xl font-semibold tracking-tight num-tabular">
                     {formatRub(total)}
                   </div>
                   <div className="grid grid-cols-2 gap-2.5 rounded-xl bg-muted/55 p-3 text-xs">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-muted-foreground">Safe-to-Spend</span>
-                      <span className="text-sm font-medium num-tabular">
+                      <span className="whitespace-nowrap text-sm font-medium num-tabular">
                         {formatRub(safe)}
                       </span>
                     </div>
                     <div className="flex flex-col gap-0.5">
                       <span className="text-muted-foreground">Жду компенсаций</span>
-                      <span className="text-sm font-medium num-tabular">
+                      <span className="whitespace-nowrap text-sm font-medium num-tabular">
                         {formatRub(reimb)}
                       </span>
                     </div>
@@ -1509,6 +1618,302 @@ export function DashboardView({
         );
       }
 
+      case "habits_strip": {
+        const doneHabitsCount = optimisticHabits.filter(
+          (h) => h.completedOnAnchorDate
+        ).length;
+        const totalHabitsCount = optimisticHabits.length;
+        const bestActiveStreak = optimisticHabits.reduce(
+          (mx, h) => Math.max(mx, h.currentStreak),
+          0
+        );
+
+        return (
+          <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
+            <CardHeader className="pb-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FlameIcon className="size-4 text-domain-health" />
+                  <CardTitle className="text-base font-semibold tracking-tight">
+                    Ритм привычек
+                  </CardTitle>
+                </div>
+                <Badge variant="secondary" className="whitespace-nowrap num-tabular">
+                  {doneHabitsCount} из {totalHabitsCount} сегодня
+                </Badge>
+              </div>
+              <CardDescription>
+                Отметка в 1 тап без лишних окон — стабильность важнее рывков
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="flex flex-col gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5 rounded-xl bg-muted/55 p-3 text-xs">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted-foreground">Закрыто сегодня</span>
+                  <span className="whitespace-nowrap text-sm font-semibold text-foreground num-tabular">
+                    {doneHabitsCount} из {totalHabitsCount}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted-foreground">Лучшая серия</span>
+                  <span className="whitespace-nowrap text-sm font-semibold text-foreground num-tabular">
+                    🔥 {bestActiveStreak} дн.
+                  </span>
+                </div>
+              </div>
+
+              {optimisticHabits.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  Активных привычек пока нет. Добавь ежедневный или недельный трекер в разделе «Цели и привычки».
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {optimisticHabits.slice(0, 6).map((habit) => {
+                    const isDone = habit.completedOnAnchorDate;
+                    return (
+                      <button
+                        key={habit.id}
+                        type="button"
+                        onClick={() => handleToggleHomeHabit(habit)}
+                        aria-pressed={isDone}
+                        className={cn(
+                          "group flex min-h-11 w-full touch-manipulation items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors",
+                          isDone
+                            ? "border-primary/30 bg-accent/45"
+                            : "border-border/80 bg-background/60 hover:bg-muted/50"
+                        )}
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                          <motion.span
+                            initial={false}
+                            animate={{
+                              scale: isDone ? [0.85, 1.08, 1] : 1,
+                            }}
+                            transition={{
+                              type: "spring",
+                              stiffness: 460,
+                              damping: 24,
+                            }}
+                            className={cn(
+                              "flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors",
+                              getHabitCheckClasses(habit.color_token, isDone)
+                            )}
+                          >
+                            <CheckIcon className="size-3.5 stroke-[2.6]" />
+                          </motion.span>
+
+                          <div className="flex min-w-0 flex-col">
+                            <span
+                              className={cn(
+                                "truncate text-sm font-medium",
+                                isDone && "text-muted-foreground line-through"
+                              )}
+                            >
+                              {habit.title}
+                            </span>
+                            {habit.cadence === "weekly_target" ? (
+                              <span className="whitespace-nowrap text-[11px] text-muted-foreground num-tabular">
+                                Неделя: {habit.thisWeekDone}/{habit.thisWeekTarget}
+                              </span>
+                            ) : habit.goalTitle ? (
+                              <span className="truncate text-[11px] text-muted-foreground">
+                                Цель: {habit.goalTitle}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {habit.currentStreak > 0 ? (
+                            <Badge
+                              variant="outline"
+                              className="whitespace-nowrap text-[11px] num-tabular"
+                            >
+                              🔥 {habit.currentStreak} дн.
+                            </Badge>
+                          ) : (
+                            <span className="whitespace-nowrap text-xs text-muted-foreground num-tabular">
+                              {habit.adherence30dPct}%
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+
+            <CardFooter className="flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+              <span className="truncate">Матрица стабильности и напоминания</span>
+              <Link
+                href="/goals"
+                className="shrink-0 font-medium text-foreground hover:text-primary"
+              >
+                Все →
+              </Link>
+            </CardFooter>
+          </Card>
+        );
+      }
+
+      case "goals_progress": {
+        const activeGoals = goalsSummary?.items ?? [];
+        const avgGoalPct = goalsSummary?.avgProgressPct ?? 0;
+        const stalledCount = goalsSummary?.stalledCount ?? 0;
+
+        return (
+          <Card className="flex h-full flex-col justify-between rounded-2xl shadow-none">
+            <CardHeader className="pb-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <TargetIcon className="size-4 text-primary" />
+                  <CardTitle className="text-base font-semibold tracking-tight">
+                    Фокус целей
+                  </CardTitle>
+                </div>
+                <Badge variant="secondary" className="whitespace-nowrap num-tabular">
+                  {avgGoalPct}% ср.
+                </Badge>
+              </div>
+              <CardDescription>
+                Долгосрочные ориентиры с привязкой к конкретным шагам
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="flex flex-col gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5 rounded-xl bg-muted/55 p-3 text-xs">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted-foreground">Активных целей</span>
+                  <span className="whitespace-nowrap text-sm font-semibold text-foreground num-tabular">
+                    {activeGoals.length}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted-foreground">Средний прогресс</span>
+                  <span className="whitespace-nowrap text-sm font-semibold text-foreground num-tabular">
+                    {avgGoalPct}%
+                    {stalledCount > 0 ? ` · ${stalledCount} ждут шага` : ""}
+                  </span>
+                </div>
+              </div>
+
+              {activeGoals.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  Активных целей пока нет. Сформулируй ориентир и привяжи к нему первые конкретные шаги.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {activeGoals.slice(0, 4).map((goal) => {
+                    const sphere =
+                      GOAL_SPHERE_META[goal.life_area as GoalLifeArea] ??
+                      GOAL_SPHERE_META.personal;
+                    const pct = goal.progress.progressPct;
+                    const nextTask = goal.progress.nextActions[0] ?? null;
+                    const numericLabel =
+                      goal.progress_mode === "numeric" &&
+                      goal.progress.targetValue !== null
+                        ? `${goal.progress.currentValue.toLocaleString("ru-RU")} → ${goal.progress.targetValue.toLocaleString("ru-RU")}${goal.unit ? ` ${goal.unit}` : ""}`
+                        : null;
+
+                    return (
+                      <div
+                        key={goal.id}
+                        className="flex flex-col gap-2 rounded-xl border border-border/80 bg-background/60 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                              <span
+                                className={cn(
+                                  "size-2 shrink-0 rounded-full",
+                                  sphere.dotClass
+                                )}
+                              />
+                              <span>{sphere.label}</span>
+                              {numericLabel ? (
+                                <span className="truncate num-tabular">
+                                  · {numericLabel}
+                                </span>
+                              ) : null}
+                            </div>
+                            <Link
+                              href="/goals?tab=goals"
+                              className="truncate text-sm font-medium text-foreground hover:text-primary"
+                            >
+                              {goal.title}
+                            </Link>
+                          </div>
+
+                          <span className="shrink-0 whitespace-nowrap text-sm font-semibold text-foreground num-tabular">
+                            {pct}%
+                          </span>
+                        </div>
+
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{
+                              width: `${Math.min(100, Math.max(pct > 0 ? 4 : 0, pct))}%`,
+                            }}
+                            transition={{
+                              type: "spring",
+                              stiffness: 220,
+                              damping: 28,
+                            }}
+                            className={cn("h-full rounded-full", sphere.barClass)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          {nextTask ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingTask(nextTask);
+                                setModalPlannedDate(
+                                  nextTask.planned_date ?? todayDate
+                                );
+                                setModalScheduledTime(null);
+                                setTaskModalOpen(true);
+                              }}
+                              className="flex min-h-7 min-w-0 flex-1 touch-manipulation items-center gap-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              <CheckCircle2Icon className="size-3.5 shrink-0 text-primary" />
+                              <span className="truncate">
+                                Шаг: {nextTask.title}
+                              </span>
+                            </button>
+                          ) : (
+                            <Link
+                              href="/goals?tab=goals"
+                              className="inline-flex min-h-7 touch-manipulation items-center gap-1.5 rounded-lg border border-warning/45 bg-warning/15 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-warning/25"
+                            >
+                              <span>⚠️ Нужен конкретный шаг</span>
+                            </Link>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+
+            <CardFooter className="flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+              <span className="truncate">Вехи, числовые метрики и шаги</span>
+              <Link
+                href="/goals?tab=goals"
+                className="shrink-0 font-medium text-foreground hover:text-primary"
+              >
+                Цели →
+              </Link>
+            </CardFooter>
+          </Card>
+        );
+      }
+
       default:
         return null;
     }
@@ -1788,6 +2193,7 @@ export function DashboardView({
         onOpenChange={setTaskModalOpen}
         task={editingTask}
         projects={projects}
+        goals={goalsSummary?.items ?? []}
         defaultPlannedDate={modalPlannedDate}
         defaultScheduledTime={modalScheduledTime}
         onSaved={() => {

@@ -831,6 +831,53 @@ export type Database = {
         }
         Relationships: []
       }
+      goal_milestones: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          due_date: string | null
+          goal_id: number
+          id: number
+          is_completed: boolean
+          sort_order: number
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          goal_id: number
+          id?: never
+          is_completed?: boolean
+          sort_order?: number
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          goal_id?: number
+          id?: never
+          is_completed?: boolean
+          sort_order?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goal_milestones_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "goals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       goals: {
         Row: {
           created_at: string
@@ -840,6 +887,7 @@ export type Database = {
           motivation_note: string | null
           progress_mode: string
           start_date: string
+          start_value: number
           status: string
           target_date: string | null
           target_value: number | null
@@ -856,6 +904,7 @@ export type Database = {
           motivation_note?: string | null
           progress_mode?: string
           start_date?: string
+          start_value?: number
           status?: string
           target_date?: string | null
           target_value?: number | null
@@ -872,6 +921,7 @@ export type Database = {
           motivation_note?: string | null
           progress_mode?: string
           start_date?: string
+          start_value?: number
           status?: string
           target_date?: string | null
           target_value?: number | null
@@ -889,6 +939,7 @@ export type Database = {
           habit_id: number
           id: number
           logged_date: string
+          note: string | null
           source: string
           user_id: string
         }
@@ -898,6 +949,7 @@ export type Database = {
           habit_id: number
           id?: never
           logged_date?: string
+          note?: string | null
           source?: string
           user_id: string
         }
@@ -907,6 +959,7 @@ export type Database = {
           habit_id?: number
           id?: never
           logged_date?: string
+          note?: string | null
           source?: string
           user_id?: string
         }
@@ -923,12 +976,15 @@ export type Database = {
       habits: {
         Row: {
           cadence: string
+          color_token: string
           created_at: string
+          description: string | null
           goal_id: number | null
           icon_name: string
           id: number
           is_archived: boolean
           preferred_slot: string
+          reminder_time: string | null
           sort_order: number
           target_per_week: number
           title: string
@@ -937,12 +993,15 @@ export type Database = {
         }
         Insert: {
           cadence?: string
+          color_token?: string
           created_at?: string
+          description?: string | null
           goal_id?: number | null
           icon_name?: string
           id?: never
           is_archived?: boolean
           preferred_slot?: string
+          reminder_time?: string | null
           sort_order?: number
           target_per_week?: number
           title: string
@@ -951,12 +1010,15 @@ export type Database = {
         }
         Update: {
           cadence?: string
+          color_token?: string
           created_at?: string
+          description?: string | null
           goal_id?: number | null
           icon_name?: string
           id?: never
           is_archived?: boolean
           preferred_slot?: string
+          reminder_time?: string | null
           sort_order?: number
           target_per_week?: number
           title?: string

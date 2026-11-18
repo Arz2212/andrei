@@ -2,6 +2,7 @@ import {
   formatIsoDate,
   getDayPlan,
   getOwnerProfile,
+  listGoalsWithDetails,
   listProjects,
   listTasks,
 } from "@life-os/db";
@@ -21,10 +22,11 @@ export default async function TasksPage({
     profile?.timezone ?? "Europe/Moscow"
   );
 
-  const [tasks, projects, dayPlan] = await Promise.all([
+  const [tasks, projects, dayPlan, goals] = await Promise.all([
     listTasks(db, { includeDone: true }),
     listProjects(db, false),
     getDayPlan(db, todayDate),
+    listGoalsWithDetails(db, { status: "all" }),
   ]);
 
   return (
@@ -33,6 +35,7 @@ export default async function TasksPage({
       initialTab={params.tab || "today"}
       tasks={tasks}
       projects={projects}
+      goals={goals}
       dayPlan={dayPlan}
       defaultAvailableMinutes={profile?.default_available_minutes ?? 480}
       defaultBufferMinutes={profile?.daily_buffer_minutes ?? 90}

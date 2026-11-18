@@ -284,3 +284,92 @@ export const MedicalRecordKindSchema = z.enum([
   "checkup",
   "other",
 ]);
+
+// ============================================================================
+// Stage 4 — Goals, Milestones & Habits Zod Schemas
+// ============================================================================
+
+export const GoalLifeAreaSchema = z.enum([
+  "work",
+  "study",
+  "launch",
+  "personal",
+  "health",
+  "finance",
+]);
+export const GoalProgressModeSchema = z.enum(["tasks_linked", "numeric", "milestones"]);
+export const GoalStatusSchema = z.enum(["active", "paused", "achieved", "dropped"]);
+export const HabitCadenceSchema = z.enum(["daily", "weekly_target"]);
+export const HabitPreferredSlotSchema = z.enum([
+  "morning",
+  "afternoon",
+  "evening",
+  "any",
+]);
+
+export const GoalMilestoneDraftSchema = z.object({
+  id: z.number().int().positive().optional(),
+  title: z.string().min(1).max(300),
+  due_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  is_completed: z.boolean().default(false),
+  sort_order: z.number().int().min(0).max(1000).optional(),
+});
+
+export const UpsertGoalInputSchema = z.object({
+  id: z.number().int().positive().optional(),
+  query: z.string().max(300).optional(),
+  life_area: GoalLifeAreaSchema.default("personal"),
+  title: z.string().min(1).max(300),
+  motivation_note: z.string().max(2000).nullable().optional(),
+  progress_mode: GoalProgressModeSchema.default("tasks_linked"),
+  start_value: z.number().optional(),
+  current_value: z.number().optional(),
+  target_value: z.number().nullable().optional(),
+  unit: z.string().max(40).nullable().optional(),
+  start_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  target_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  status: GoalStatusSchema.default("active"),
+  milestones: z.array(GoalMilestoneDraftSchema).optional(),
+});
+
+export const UpsertHabitInputSchema = z.object({
+  id: z.number().int().positive().optional(),
+  query: z.string().max(300).optional(),
+  goal_id: z.number().int().positive().nullable().optional(),
+  title: z.string().min(1).max(200),
+  description: z.string().max(1000).nullable().optional(),
+  icon_name: z.string().max(60).default("check-circle-2"),
+  color_token: z.string().max(60).default("domain-health"),
+  cadence: HabitCadenceSchema.default("daily"),
+  target_per_week: z.number().int().min(1).max(7).default(7),
+  preferred_slot: HabitPreferredSlotSchema.default("any"),
+  reminder_time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/)
+    .nullable()
+    .optional(),
+  sort_order: z.number().int().min(0).max(1000).optional(),
+  is_archived: z.boolean().optional(),
+});
+
+export const ToggleHabitCheckinInputSchema = z.object({
+  habitIdOrQuery: z.union([z.number().int().positive(), z.string().min(1)]),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  completed: z.boolean().optional(),
+  note: z.string().max(500).nullable().optional(),
+  source: RecordSourceSchema.default("web"),
+});

@@ -11,6 +11,7 @@ import {
   PlusIcon,
   RepeatIcon,
   TagIcon,
+  TargetIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   REMINDER_DISABLED_SENTINEL,
   extractLocalTimeParts,
   type DaySlot,
+  type Goal,
   type Project,
   type SubtaskItem,
   type Task,
@@ -70,9 +72,11 @@ interface TaskFormModalProps {
   onOpenChange: (open: boolean) => void;
   task: Task | null;
   projects: Project[];
+  goals?: Array<Pick<Goal, "id" | "title" | "life_area" | "status">>;
   defaultPlannedDate?: string | null;
   defaultScheduledTime?: string | null;
   defaultProjectId?: number | null;
+  defaultGoalId?: number | null;
   defaultStatus?: TaskStatus;
   onSaved?: () => void;
 }
@@ -82,9 +86,11 @@ export function TaskFormModal({
   onOpenChange,
   task,
   projects,
+  goals = [],
   defaultPlannedDate,
   defaultScheduledTime,
   defaultProjectId,
+  defaultGoalId,
   defaultStatus = "todo",
   onSaved,
 }: TaskFormModalProps) {
@@ -110,6 +116,7 @@ export function TaskFormModal({
   const [estimatedMinutes, setEstimatedMinutes] = React.useState("");
   const [dueDate, setDueDate] = React.useState("");
   const [projectId, setProjectId] = React.useState("none");
+  const [goalId, setGoalId] = React.useState("none");
   const [waitingPerson, setWaitingPerson] = React.useState("");
   const [waitingContext, setWaitingContext] = React.useState("");
   const [followUpDate, setFollowUpDate] = React.useState("");
@@ -136,6 +143,13 @@ export function TaskFormModal({
           ? String(task.project_id)
           : defaultProjectId
             ? String(defaultProjectId)
+            : "none"
+      );
+      setGoalId(
+        task?.goal_id
+          ? String(task.goal_id)
+          : defaultGoalId
+            ? String(defaultGoalId)
             : "none"
       );
       setIsMeeting(Boolean(task?.is_meeting));
@@ -176,6 +190,7 @@ export function TaskFormModal({
     defaultPlannedDate,
     defaultScheduledTime,
     defaultProjectId,
+    defaultGoalId,
     defaultStatus,
   ]);
 
@@ -289,6 +304,7 @@ export function TaskFormModal({
           estimated_minutes: estimatedMinutes ? Number(estimatedMinutes) : null,
           due_date: dueDate || null,
           project_id: projectId !== "none" ? Number(projectId) : null,
+          goal_id: goalId !== "none" ? Number(goalId) : null,
           waiting_on_person: waitingPerson || null,
           waiting_context: waitingContext || null,
           follow_up_at: followUpDate ? `${followUpDate}T10:00:00` : null,
@@ -380,6 +396,32 @@ export function TaskFormModal({
               </Select>
             </Field>
           </div>
+
+          <Field>
+            <FieldLabel className="flex items-center gap-1.5">
+              <TargetIcon className="size-3.5 text-primary" />
+              Привязка к цели
+            </FieldLabel>
+            <Select value={goalId} onValueChange={setGoalId}>
+              <SelectTrigger className="min-h-11 w-full">
+                <SelectValue placeholder="Без привязки к цели" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="none">Без привязки к цели</SelectItem>
+                  {goals
+                    .filter(
+                      (g) => g.status === "active" || String(g.id) === goalId
+                    )
+                    .map((g) => (
+                      <SelectItem key={g.id} value={String(g.id)}>
+                        {g.title}
+                      </SelectItem>
+                    ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
 
           {status === "waiting" ? (
             <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/40 p-3.5">

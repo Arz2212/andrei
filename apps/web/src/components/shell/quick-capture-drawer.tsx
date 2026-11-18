@@ -10,6 +10,7 @@ import {
   Loader2Icon,
   ShoppingCartIcon,
   SparklesIcon,
+  TargetIcon,
   WalletIcon,
 } from "lucide-react";
 import {
@@ -24,8 +25,10 @@ import {
   checkTaskConflictAction,
   createAgreementAction,
   createStateCheckinAction,
+  fetchActiveGoalsSelectAction,
   saveTaskAction,
   type ConflictPreviewItem,
+  type GoalSelectOption,
 } from "@/app/actions";
 import { saveFinanceTransactionAction } from "@/app/finance-actions";
 import { addShoppingItemAction } from "@/app/nutrition-actions";
@@ -84,6 +87,8 @@ export function QuickCaptureDrawer({
   const [slot, setSlot] = React.useState<DaySlot>("any");
   const [minutes, setMinutes] = React.useState("30");
   const [isToday, setIsToday] = React.useState<"scheduled" | "inbox">("scheduled");
+  const [goalId, setGoalId] = React.useState("none");
+  const [activeGoals, setActiveGoals] = React.useState<GoalSelectOption[]>([]);
   const [conflicts, setConflicts] = React.useState<ConflictPreviewItem[]>([]);
 
   // Finance quick capture state
@@ -118,6 +123,9 @@ export function QuickCaptureDrawer({
       if (defaultAcc && !txAccountId) {
         setTxAccountId(String(defaultAcc.id));
       }
+      fetchActiveGoalsSelectAction()
+        .then(setActiveGoals)
+        .catch(() => {});
     }
   }, [open, todayDate, financeAccounts, txAccountId]);
 
@@ -176,12 +184,14 @@ export function QuickCaptureDrawer({
                 : null,
             day_slot: slot,
             estimated_minutes: Number(minutes) || null,
+            goal_id: goalId !== "none" ? Number(goalId) : null,
             status: useScheduled ? "todo" : "inbox",
             priority: 2,
           });
           setTaskTitle("");
           setScheduledTime("");
           setIsMeeting(false);
+          setGoalId("none");
           toast.success("Задача добавлена");
         } else if (mode === "finance") {
           const parsedAmount = Number(txAmount.replace(",", "."));
@@ -323,6 +333,32 @@ export function QuickCaptureDrawer({
                     className="min-h-11"
                   />
                 </Field>
+
+                {activeGoals.length > 0 ? (
+                  <Field>
+                    <FieldLabel className="flex items-center gap-1.5">
+                      <TargetIcon className="size-3.5 text-primary" />
+                      Привязка к цели
+                    </FieldLabel>
+                    <Select value={goalId} onValueChange={setGoalId}>
+                      <SelectTrigger className="min-h-11 w-full">
+                        <SelectValue placeholder="Без привязки к цели" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">
+                            Без привязки к цели
+                          </SelectItem>
+                          {activeGoals.map((g) => (
+                            <SelectItem key={g.id} value={String(g.id)}>
+                              {g.title}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                ) : null}
 
                 <div className="grid grid-cols-2 gap-3">
                   <Field>

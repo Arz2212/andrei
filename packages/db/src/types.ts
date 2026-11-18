@@ -35,6 +35,13 @@ export interface DashboardWidgetLayoutItem {
 export type Goal = Tables<"goals">;
 export type GoalInsert = TablesInsert<"goals">;
 export type GoalUpdate = TablesUpdate<"goals">;
+export type GoalLifeArea = "work" | "study" | "launch" | "personal" | "health" | "finance";
+export type GoalProgressMode = "tasks_linked" | "numeric" | "milestones";
+export type GoalStatus = "active" | "paused" | "achieved" | "dropped";
+
+export type GoalMilestone = Tables<"goal_milestones">;
+export type GoalMilestoneInsert = TablesInsert<"goal_milestones">;
+export type GoalMilestoneUpdate = TablesUpdate<"goal_milestones">;
 
 export type Project = Tables<"projects">;
 export type ProjectInsert = TablesInsert<"projects">;
@@ -77,17 +84,23 @@ export type ReminderQueueInsert = TablesInsert<"reminders_queue">;
 export type ReminderQueueUpdate = TablesUpdate<"reminders_queue">;
 export type ReminderEntityType =
   | "task_start"
+  | "task"
   | "waiting_followup"
   | "standalone_reminder"
+  | "custom"
   | "morning_digest"
   | "evening_review"
+  | "weekly_digest"
   | "finance_obligation"
+  | "obligation_due"
   | "credit_grace"
   | "debt_due"
   | "medical_followup"
   | "medical_visit"
   | "workout_window"
-  | "pantry_expiry";
+  | "pantry_expiry"
+  | "habit_reminder"
+  | "goal_milestone";
 export type ReminderStatus = "pending" | "sent" | "cancelled" | "failed";
 
 export type DayPlan = Tables<"day_plans">;
@@ -453,4 +466,150 @@ export interface MedicalRecordFull extends MedicalRecord {
 }
 
 export type Habit = Tables<"habits">;
+export type HabitInsert = TablesInsert<"habits">;
+export type HabitUpdate = TablesUpdate<"habits">;
+export type HabitCadence = "daily" | "weekly_target";
+export type HabitPreferredSlot = "morning" | "afternoon" | "evening" | "any";
+
 export type HabitLog = Tables<"habit_logs">;
+export type HabitLogInsert = TablesInsert<"habit_logs">;
+export type HabitLogUpdate = TablesUpdate<"habit_logs">;
+
+// ============================================================================
+// Stage 4 — Goals, Milestones, 1-Tap Habits & Cross-Life Analytics Types
+// ============================================================================
+
+export interface GoalComputedProgress {
+  progressPct: number;
+  doneCount: number;
+  totalCount: number;
+  currentValue: number;
+  startValue: number;
+  targetValue: number | null;
+  unit: string | null;
+  isDecreasingNumeric: boolean;
+  nextActions: Task[];
+  openMilestones: GoalMilestone[];
+  isStalled: boolean;
+  stalledReason: string | null;
+}
+
+export interface GoalWithDetails extends Goal {
+  milestones: GoalMilestone[];
+  linkedTasks: Task[];
+  linkedProjects: Project[];
+  linkedHabits: Habit[];
+  progress: GoalComputedProgress;
+}
+
+export interface HabitHistoryCell {
+  date: string;
+  completed: boolean;
+  note: string | null;
+}
+
+export interface HabitWithStats extends Habit {
+  completedOnAnchorDate: boolean;
+  anchorDateNote: string | null;
+  history: HabitHistoryCell[];
+  currentStreak: number;
+  bestStreak: number;
+  thisWeekDone: number;
+  thisWeekTarget: number;
+  adherence30dPct: number;
+  goalTitle: string | null;
+}
+
+export type ProactiveInsightSeverity = "info" | "attention" | "positive";
+export type ProactiveInsightDomain = "goals" | "habits" | "tasks" | "energy" | "health";
+
+export interface ProactiveInsight {
+  id: string;
+  severity: ProactiveInsightSeverity;
+  domain: ProactiveInsightDomain;
+  title: string;
+  description: string;
+  actionLabel: string;
+  actionHref: string;
+}
+
+export interface LifeAnalyticsSummary {
+  anchorDate: string;
+  windowDays: number;
+  startDate: string;
+  endDate: string;
+  tasks: {
+    completedCount: number;
+    openCount: number;
+    openOverdueCount: number;
+    focusCompletionRatePct: number;
+    avgPlannedMinutes: number;
+    avgBufferMinutes: number;
+    dailyCompletedSeries: Array<{ date: string; completed: number; planned: number }>;
+  };
+  habits: {
+    todayDone: number;
+    todayTotal: number;
+    adherenceWindowPct: number;
+    topStreakHabit: {
+      id: number;
+      title: string;
+      currentStreak: number;
+      bestStreak: number;
+    } | null;
+    dailySeries: Array<{ date: string; done: number; total: number; pct: number }>;
+    matrix21d: HabitWithStats[];
+  };
+  goals: {
+    activeCount: number;
+    achievedCount: number;
+    pausedCount: number;
+    avgProgressPct: number;
+    stalledGoals: GoalWithDetails[];
+    activeGoals: GoalWithDetails[];
+  };
+  wellbeing: {
+    avgEnergy: number | null;
+    avgMood: number | null;
+    avgTension: number | null;
+    avgTasksScore: number | null;
+    avgHabitsScore: number | null;
+    avgHealthScore: number | null;
+    avgNutritionScore: number | null;
+    reviewStreak: number;
+    dailySeries: Array<{
+      date: string;
+      energy: number | null;
+      mood: number | null;
+      tension: number | null;
+      reviewAvgScore: number | null;
+    }>;
+  };
+  healthAndNutrition: {
+    workoutsCompletedThisWeek: number;
+    workoutsTargetThisWeek: number;
+    openWorkoutWindowsCount: number;
+    latestWeightKg: number | null;
+    weightDelta14dKg: number | null;
+    avgDailyKcal: number;
+    kcalTarget: number;
+  };
+  proactiveInsights: ProactiveInsight[];
+}
+
+export interface TodayHabitsSummary {
+  date: string;
+  doneCount: number;
+  totalCount: number;
+  completionPct: number;
+  topStreak: number;
+  items: HabitWithStats[];
+}
+
+export interface TodayGoalsSummary {
+  activeCount: number;
+  achievedCount: number;
+  avgProgressPct: number;
+  stalledCount: number;
+  items: GoalWithDetails[];
+}

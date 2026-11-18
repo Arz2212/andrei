@@ -1,4 +1,5 @@
 import type { Json } from "./database.types";
+import { getTodayHabitsAndGoalsSummary } from "./goals";
 import { listWorkoutSessions } from "./health";
 import { getDayFoodDiary, listMealPlanEntries, listShoppingItems } from "./nutrition";
 import {
@@ -602,6 +603,7 @@ export interface ListTasksFilter {
   fromDate?: string;
   toDate?: string;
   projectId?: number;
+  goalId?: number | null;
   includeDone?: boolean;
 }
 
@@ -638,6 +640,13 @@ export async function listTasks(
   }
   if (filter.projectId) {
     query = query.eq("project_id", filter.projectId);
+  }
+  if (filter.goalId !== undefined) {
+    if (filter.goalId === null) {
+      query = query.is("goal_id", null);
+    } else {
+      query = query.eq("goal_id", filter.goalId);
+    }
   }
 
   const { data, error } = await query;
@@ -880,6 +889,19 @@ export async function updateTask(
   if (error) throw error;
   await syncTaskRemindersToQueue(db, data, { timeZone });
   return data;
+}
+
+export async function upsertTask(
+  db: TypedSupabaseClient,
+  input: (TaskInsert & { id?: number }) | ({ id: number } & TaskUpdate),
+  timeZone = "Europe/Moscow"
+): Promise<Task> {
+  if ("id" in input && typeof input.id === "number" && input.id > 0) {
+    const { id, ...patch } = input;
+    return updateTask(db, id, patch, timeZone);
+  }
+  const { id: _unused, ...insertInput } = input as TaskInsert & { id?: number };
+  return createTask(db, insertInput, timeZone);
 }
 
 export async function toggleTaskDone(
@@ -1750,6 +1772,7 @@ export async function getTodayOverview(
     todayFoodDiary,
     uncheckedShoppingItems,
     activeWorkoutWindows,
+    habitsAndGoals,
   ] = await Promise.all([
     getOwnerProfile(db),
     getDashboardWidgets(db),
@@ -1771,6 +1794,7 @@ export async function getTodayOverview(
       startDate: todayDate,
       endDate: addDaysToIsoDate(todayDate, 5),
     }),
+    getTodayHabitsAndGoalsSummary(db, todayDate),
   ]);
 
   const todayNutritionSummary = {
@@ -1807,6 +1831,8 @@ export async function getTodayOverview(
     todayNutritionSummary,
     uncheckedShoppingItems,
     activeWorkoutWindows,
+    habitsSummary: habitsAndGoals.habitsSummary,
+    goalsSummary: habitsAndGoals.goalsSummary,
   };
 }
 

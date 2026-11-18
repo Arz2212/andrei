@@ -15,13 +15,13 @@ import { registerJournalAndStateTools } from "./tools/journal";
 import { registerFinanceTools } from "./tools/finance";
 import { registerNutritionTools } from "./tools/nutrition";
 import { registerHealthTools } from "./tools/health";
-import { registerStage4DomainTools } from "./tools/roadmap-domains";
+import { registerGoalsAndHabitsTools } from "./tools/goals-habits";
 
 loadEnvSilently();
 
 const server = new McpServer({
   name: "life-os",
-  version: "1.4.0",
+  version: "1.5.0",
 });
 
 registerOverviewAndTaskTools(server);
@@ -29,7 +29,7 @@ registerJournalAndStateTools(server);
 registerFinanceTools(server);
 registerNutritionTools(server);
 registerHealthTools(server);
-registerStage4DomainTools(server);
+registerGoalsAndHabitsTools(server);
 
 // Expose live assistant persona & agreements as an MCP prompt as well
 server.registerPrompt(

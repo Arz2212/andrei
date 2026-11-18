@@ -29,7 +29,6 @@ import { signOutAction } from "@/app/actions";
 import { BrandLogo } from "@/components/shell/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Drawer,
   DrawerContent,
@@ -64,6 +63,12 @@ const PRIMARY_NAV = [
     icon: CalendarRangeIcon,
   },
   {
+    href: "/goals",
+    label: "Цели и привычки",
+    mobileLabel: "Цели",
+    icon: TargetIcon,
+  },
+  {
     href: "/finance",
     label: "Финансы",
     mobileLabel: "Деньги",
@@ -92,6 +97,12 @@ const PRIMARY_NAV = [
 const MOBILE_BOTTOM_LEFT = [PRIMARY_NAV[0], PRIMARY_NAV[1]] as const;
 const MOBILE_HUB_ITEMS = [
   {
+    href: "/goals",
+    title: "Цели и привычки",
+    subtitle: "Цели, конкретные шаги, привычки в 1 тап и аналитика",
+    icon: TargetIcon,
+  },
+  {
     href: "/nutrition",
     title: "Питание и покупки",
     subtitle: "Меню недели, рецепты, запасы дома и покупки",
@@ -116,21 +127,11 @@ const MOBILE_HUB_ITEMS = [
     icon: CalendarRangeIcon,
   },
   {
-    href: "/goals",
-    title: "Цели и привычки",
-    subtitle: "Этап 4 · ориентиры и ежедневные трекеры",
-    icon: TargetIcon,
-  },
-  {
     href: "/settings",
     title: "ИИ и настройки",
     subtitle: "Характер напарника, правила и сводки",
     icon: SlidersHorizontalIcon,
   },
-] as const;
-
-const MODULE_NAV = [
-  { href: "/goals", label: "Цели и привычки", stage: "Этап 4", icon: TargetIcon },
 ] as const;
 
 export function AppShell({
@@ -293,50 +294,6 @@ export function AppShell({
                 ) : null}
                 {!collapsed && item.href === "/" && pendingActionsCount > 0 ? (
                   <Badge className="num-tabular">{pendingActionsCount}</Badge>
-                ) : null}
-              </Link>
-            );
-          })}
-
-          <div className={cn("my-3", collapsed ? "w-8" : "w-full")}>
-            <Separator />
-          </div>
-
-          {!collapsed ? (
-            <span className="px-3 pb-1 text-xs font-medium text-muted-foreground">
-              Следующий этап
-            </span>
-          ) : null}
-
-          {MODULE_NAV.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={collapsed ? `${item.label} (${item.stage})` : undefined}
-                aria-label={collapsed ? item.label : undefined}
-                className={cn(
-                  "flex items-center rounded-xl text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                  collapsed
-                    ? "size-10 justify-center p-0"
-                    : "min-h-9 w-full justify-between px-3 py-1.5"
-                )}
-              >
-                <span className="flex items-center gap-2.5 truncate">
-                  <Icon className="size-4 shrink-0" />
-                  {!collapsed ? (
-                    <span className="truncate">{item.label}</span>
-                  ) : null}
-                </span>
-                {!collapsed ? (
-                  <span className="text-[11px] text-muted-foreground num-tabular">
-                    {item.stage}
-                  </span>
                 ) : null}
               </Link>
             );

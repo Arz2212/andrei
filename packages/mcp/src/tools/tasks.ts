@@ -207,6 +207,40 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
             preferred_slot: w.preferred_slot,
             status: w.status,
           })),
+          habits_summary: {
+            date: overview.habitsSummary.date,
+            done_count: overview.habitsSummary.doneCount,
+            total_count: overview.habitsSummary.totalCount,
+            completion_pct: overview.habitsSummary.completionPct,
+            top_streak: overview.habitsSummary.topStreak,
+            items: overview.habitsSummary.items.map((h) => ({
+              id: h.id,
+              title: h.title,
+              completed_on_date: h.completedOnAnchorDate,
+              current_streak: h.currentStreak,
+              cadence: h.cadence,
+              this_week_done: h.thisWeekDone,
+              this_week_target: h.thisWeekTarget,
+              preferred_slot: h.preferred_slot,
+              reminder_time: h.reminder_time,
+            })),
+          },
+          goals_summary: {
+            active_count: overview.goalsSummary.activeCount,
+            achieved_count: overview.goalsSummary.achievedCount,
+            avg_progress_pct: overview.goalsSummary.avgProgressPct,
+            stalled_count: overview.goalsSummary.stalledCount,
+            items: overview.goalsSummary.items.map((g) => ({
+              id: g.id,
+              title: g.title,
+              life_area: g.life_area,
+              progress_mode: g.progress_mode,
+              progress_pct: g.progress.progressPct,
+              is_stalled: g.progress.isStalled,
+              stalled_reason: g.progress.stalledReason,
+              next_action: g.progress.nextActions[0]?.title ?? null,
+            })),
+          },
         });
       } catch (err) {
         return errResult(err instanceof Error ? err.message : String(err));
@@ -342,6 +376,10 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           .union([z.string(), z.number()])
           .optional()
           .describe("Название проекта (нечёткий поиск) или ID проекта"),
+        goal: z
+          .union([z.string(), z.number()])
+          .optional()
+          .describe("Название цели (нечёткий поиск) или ID цели"),
         day_slot: z
           .enum(["morning", "afternoon", "evening", "any"])
           .optional()
@@ -404,6 +442,18 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
 
         if (resolvedProjectId !== undefined) {
           rows = rows.filter((t) => t.project_id === resolvedProjectId);
+        }
+        if (args.goal !== undefined) {
+          const goalObj = await resolveGoalRef(db, args.goal);
+          if (!goalObj) {
+            return okResult({
+              ok: true,
+              count: 0,
+              note: `Цель по запросу «${args.goal}» не найдена.`,
+              tasks: [],
+            });
+          }
+          rows = rows.filter((t) => t.goal_id === goalObj.id);
         }
         if (args.status) {
           const allowed = new Set(Array.isArray(args.status) ? args.status : [args.status]);
@@ -572,7 +622,20 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           .union([z.string(), z.number()])
           .nullable()
           .optional()
-          .describe("Название цели или её ID"),
+          .describe("Название цели (нечёткий поиск) или её ID"),
+        goal_id: z
+          .number()
+          .int()
+          .positive()
+          .nullable()
+          .optional()
+          .describe("Точный ID цели (алиас для goal)"),
+        goal_query: z
+          .string()
+          .max(250)
+          .nullable()
+          .optional()
+          .describe("Нечёткий запрос по названию цели (алиас для goal)"),
         priority: PriorityFlexibleSchema.optional().describe(
           "Приоритет: 1 (Главное/high), 2 (Важно/normal — по умолчанию), 3 (Обычное/low), 4 (Когда-нибудь)"
         ),
@@ -706,9 +769,15 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           }
         }
 
+        const goalInput =
+          args.goal !== undefined
+            ? args.goal
+            : args.goal_id !== undefined
+              ? args.goal_id
+              : args.goal_query;
         const [resolvedProject, resolvedGoal] = await Promise.all([
           resolveProjectRef(db, args.project),
-          resolveGoalRef(db, args.goal),
+          resolveGoalRef(db, goalInput),
         ]);
 
         const remindNormalized = normalizeRemindInput(
@@ -831,6 +900,19 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           .nullable()
           .optional()
           .describe("Новая цель по названию/ID (null чтобы отвязать)"),
+        goal_id: z
+          .number()
+          .int()
+          .positive()
+          .nullable()
+          .optional()
+          .describe("Новый ID цели (null чтобы отвязать)"),
+        goal_query: z
+          .string()
+          .max(250)
+          .nullable()
+          .optional()
+          .describe("Новая цель по нечёткому названию (null чтобы отвязать)"),
         priority: PriorityFlexibleSchema.optional().describe("Новый приоритет 1..4"),
         tags: z.array(z.string().min(1).max(60)).optional().describe("Заменить массив тегов"),
         add_tags: z.array(z.string().min(1).max(60)).optional().describe("Добавить теги к существующим"),
@@ -965,13 +1047,19 @@ export function registerOverviewAndTaskTools(server: McpServer): void {
           }
         }
 
-        if (args.goal !== undefined) {
-          if (args.goal === null || args.goal === "") {
+        const updateGoalRef =
+          args.goal !== undefined
+            ? args.goal
+            : args.goal_id !== undefined
+              ? args.goal_id
+              : args.goal_query;
+        if (updateGoalRef !== undefined) {
+          if (updateGoalRef === null || updateGoalRef === "") {
             patch.goal_id = null;
           } else {
-            const goal = await resolveGoalRef(db, args.goal);
+            const goal = await resolveGoalRef(db, updateGoalRef);
             if (!goal) {
-              return errResult(`Цель «${args.goal}» не найдена.`);
+              return errResult(`Цель «${updateGoalRef}» не найдена.`);
             }
             patch.goal_id = goal.id;
           }

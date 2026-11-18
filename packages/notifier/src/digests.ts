@@ -5,6 +5,7 @@ import {
   formatTaskTimeRange,
   getAssistantSettings,
   getDailyReview,
+  getLifeAnalyticsSummary,
   getOwnerProfile,
   getTodayOverview,
   hasDigestBeenSentForDate,
@@ -61,6 +62,12 @@ function parseHhMmToMinutes(hhmm: string | null | undefined): number | null {
   const m = Number(match[2]);
   if (h < 0 || h > 23 || m < 0 || m > 59) return null;
   return h * 60 + m;
+}
+
+function getIsoWeekdayFromDateStr(dateStr: string): number {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const jsDay = new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
+  return jsDay === 0 ? 7 : jsDay; // 1 = Monday .. 7 = Sunday
 }
 
 function formatRussianDayHeader(dateStr: string, timeZone: string): string {
@@ -175,6 +182,45 @@ export async function buildMorningDigestHtml(
     lines.push(
       `\n✨ <b>На сегодня жёстких задач пока нет</b> — можно спокойно задать главный шаг дня.`
     );
+  }
+
+  // Stage 4: Compact Habits & Goals section
+  const habitsSummary = overview.habitsSummary;
+  const goalsSummary = overview.goalsSummary;
+  if ((habitsSummary && habitsSummary.totalCount > 0) || (goalsSummary && goalsSummary.activeCount > 0)) {
+    const hgLines: string[] = [];
+
+    if (habitsSummary && habitsSummary.totalCount > 0) {
+      const morningTitles = habitsSummary.items
+        .filter((h) => !h.completedOnAnchorDate && h.preferred_slot === "morning")
+        .slice(0, 3)
+        .map((h) => escapeTelegramHtml(h.title));
+      const morningHint =
+        morningTitles.length > 0 ? ` <i>(утро: ${morningTitles.join(", ")})</i>` : "";
+      hgLines.push(
+        `🔁 Привычки на день: <b>${habitsSummary.doneCount}/${habitsSummary.totalCount}</b>${morningHint}`
+      );
+    }
+
+    if (goalsSummary && goalsSummary.activeCount > 0) {
+      const stalledGoal = goalsSummary.items.find((g) => g.progress.isStalled);
+      if (stalledGoal) {
+        hgLines.push(
+          `⚠️ Цель без открытого шага: <b>${escapeTelegramHtml(stalledGoal.title)}</b> (<code>${stalledGoal.progress.progressPct}%</code>)`
+        );
+      } else {
+        const topGoal = goalsSummary.items[0];
+        if (topGoal) {
+          hgLines.push(
+            `🧭 Цель в фокусе: <b>${escapeTelegramHtml(topGoal.title)}</b> (<code>${topGoal.progress.progressPct}%</code>)`
+          );
+        }
+      }
+    }
+
+    if (hgLines.length > 0) {
+      lines.push(`\n${hgLines.join("\n")}`);
+    }
   }
 
   // Stage 3: Today's floating workout windows & planned meals
@@ -313,10 +359,93 @@ export async function buildEveningReviewNudgeHtml(
 
   const lines: string[] = [
     `🌙 <b>Вечернее подведение итогов · ${escapeTelegramHtml(formatRussianDayHeader(todayDate, timeZone))}</b>`,
-    `\n✅ Закрыто за день: <b>${doneTasks.length}</b> · осталось открытых: <b>${openTasks.length}</b>`,
-    `\nНадиктуй в чат короткие итоги (задачи, здоровье, питание, привычки + главный шаг на завтра) или отметь на сайте:`,
-    `🔗 <a href="${escapeTelegramHtml(`${appUrl}/journal`)}">Заполнить вечернюю оценку</a>`,
+    `\n✅ Задачи за день: закрыто <b>${doneTasks.length}</b> · осталось открытых: <b>${openTasks.length}</b>`,
   ];
+
+  const habitsSummary = overview.habitsSummary;
+  if (habitsSummary && habitsSummary.totalCount > 0) {
+    lines.push(
+      `🔁 Привычки сегодня: <b>${habitsSummary.doneCount} из ${habitsSummary.totalCount}</b>`
+    );
+
+    const remainingHabits = [...habitsSummary.items]
+      .filter(
+        (h) =>
+          !h.completedOnAnchorDate &&
+          (h.cadence === "daily" || h.thisWeekDone < h.thisWeekTarget)
+      )
+      .sort((a, b) => {
+        const aEve = a.preferred_slot === "evening" ? 0 : 1;
+        const bEve = b.preferred_slot === "evening" ? 0 : 1;
+        return aEve - bEve || a.sort_order - b.sort_order;
+      })
+      .slice(0, 3);
+
+    if (remainingHabits.length > 0) {
+      const remLines = remainingHabits.map((h) => `• ${escapeTelegramHtml(h.title)}`);
+      lines.push(`Не забудь отметить:\n${remLines.join("\n")}`);
+    }
+  }
+
+  lines.push(
+    `\nНадиктуй короткие итоги в чат или отметь на сайте:`,
+    `🔗 <a href="${escapeTelegramHtml(`${appUrl}/journal`)}">Вечерняя оценка</a> · <a href="${escapeTelegramHtml(`${appUrl}/goals`)}">Привычки</a>`
+  );
+
+  return lines.join("\n");
+}
+
+export async function buildWeeklyDigestHtml(
+  db: TypedSupabaseClient,
+  todayDate: string,
+  timeZone: string,
+  appUrl: string
+): Promise<string> {
+  const summary = await getLifeAnalyticsSummary(db, todayDate, 7, timeZone);
+  const rangeLabel = `${formatShortDayMonth(summary.startDate)}–${formatShortDayMonth(summary.endDate)}`;
+
+  const lines: string[] = [
+    `🧭 <b>Итоги недели · Life OS (${escapeTelegramHtml(rangeLabel)})</b>`,
+    `\n✅ <b>Задачи (7 дн.):</b> закрыто <b>${summary.tasks.completedCount}</b> · выполнение плана <b>${summary.tasks.focusCompletionRatePct}%</b>`,
+  ];
+
+  const streakTail = summary.habits.topStreakHabit
+    ? ` · 🔥 «${escapeTelegramHtml(summary.habits.topStreakHabit.title)}» (${summary.habits.topStreakHabit.currentStreak} дн.)`
+    : "";
+  lines.push(
+    `🔁 <b>Привычки:</b> стабильность <b>${summary.habits.adherenceWindowPct}%</b>${streakTail}`
+  );
+
+  lines.push(
+    `🏋️ <b>Тренировки недели:</b> <b>${summary.healthAndNutrition.workoutsCompletedThisWeek} из ${summary.healthAndNutrition.workoutsTargetThisWeek}</b>`
+  );
+
+  if (summary.goals.activeCount > 0) {
+    lines.push(
+      `🎯 <b>Активные цели (${summary.goals.activeCount}):</b> средний прогресс <b>${summary.goals.avgProgressPct}%</b>`
+    );
+    if (summary.goals.stalledGoals.length > 0) {
+      const stalledTitles = summary.goals.stalledGoals
+        .slice(0, 2)
+        .map((g) => `«${escapeTelegramHtml(g.title)}»`)
+        .join(", ");
+      lines.push(`⚠️ Нужен следующий шаг: ${stalledTitles}`);
+    }
+  }
+
+  const topInsights = summary.proactiveInsights.slice(0, 2);
+  if (topInsights.length > 0) {
+    const insightLines = topInsights.map((ins) => {
+      const icon =
+        ins.severity === "attention" ? "🔸" : ins.severity === "positive" ? "✨" : "💡";
+      return `${icon} <b>${escapeTelegramHtml(ins.title)}</b> — ${escapeTelegramHtml(ins.description)}`;
+    });
+    lines.push(`\n<b>Фокус напарника:</b>\n${insightLines.join("\n")}`);
+  }
+
+  lines.push(
+    `\n🔗 <a href="${escapeTelegramHtml(`${appUrl}/goals`)}">Цели и аналитика</a> · <a href="${escapeTelegramHtml(`${appUrl}/tasks?tab=week`)}">План новой недели</a>`
+  );
 
   return lines.join("\n");
 }
@@ -407,8 +536,60 @@ export class DigestCheckController {
       }
     }
 
-    // 2) Evening Review Nudge (triggers within a 15-minute window if today's review isn't filled yet)
+    // 2) Proactive Weekly Digest (on weekly_review_day 1..7, ~30 min before evening_review_time or 20:30 fallback)
+    const isoWeekday = getIsoWeekdayFromDateStr(todayDate);
+    const targetReviewDay = settings.weekly_review_day || 7;
     const eveningTargetMins = parseHhMmToMinutes(settings.evening_review_time);
+    const weeklyTargetMins =
+      eveningTargetMins !== null ? Math.max(0, eveningTargetMins - 30) : 20 * 60 + 30;
+
+    if (
+      isoWeekday === targetReviewDay &&
+      nowMinutesOfDay >= weeklyTargetMins &&
+      nowMinutesOfDay <= weeklyTargetMins + 15
+    ) {
+      const lockKey = `weekly_digest:${todayDate}`;
+      if (!this.sentLocks.has(lockKey)) {
+        const alreadySent = await hasDigestBeenSentForDate(
+          params.db,
+          "weekly_digest",
+          todayDate
+        );
+        if (alreadySent) {
+          this.sentLocks.add(lockKey);
+        } else {
+          this.sentLocks.add(lockKey);
+          try {
+            const html = await buildWeeklyDigestHtml(
+              params.db,
+              todayDate,
+              timeZone,
+              params.appUrl
+            );
+            await sendTelegramPush({
+              botToken: params.botToken,
+              chatId,
+              htmlText: html,
+            });
+            await recordDigestSentForDate(params.db, {
+              userId: params.userId,
+              entityType: "weekly_digest",
+              dateStr: todayDate,
+              messageText: html,
+              telegramChatId: chatId,
+              status: "sent",
+            });
+            console.info(`[notifier] Sent weekly_digest for ${todayDate} to chat ${chatId}`);
+          } catch (err) {
+            this.sentLocks.delete(lockKey);
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[notifier] Failed weekly_digest for ${todayDate}:`, msg);
+          }
+        }
+      }
+    }
+
+    // 3) Evening Review Nudge (triggers within a 15-minute window if today's review isn't filled yet)
     if (
       eveningTargetMins !== null &&
       nowMinutesOfDay >= eveningTargetMins &&

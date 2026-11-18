@@ -17,6 +17,7 @@ import {
   PlusIcon,
   SunIcon,
   SunsetIcon,
+  TargetIcon,
   Trash2Icon,
 } from "lucide-react";
 import {
@@ -27,6 +28,7 @@ import {
   getWeekBoundsIso,
   type DayPlan,
   type DaySlot,
+  type GoalWithDetails,
   type LifeArea,
   type Project,
   type Task,
@@ -129,6 +131,7 @@ interface TasksViewProps {
   initialTab?: string;
   tasks: Task[];
   projects: Project[];
+  goals?: GoalWithDetails[];
   dayPlan: DayPlan | null;
   defaultAvailableMinutes: number;
   defaultBufferMinutes: number;
@@ -139,6 +142,7 @@ export function TasksView({
   initialTab = "today",
   tasks,
   projects,
+  goals = [],
   dayPlan,
   defaultBufferMinutes,
 }: TasksViewProps) {
@@ -237,6 +241,11 @@ export function TasksView({
   const projectMap = React.useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
     [projects]
+  );
+
+  const goalMap = React.useMemo(
+    () => new Map(goals.map((g) => [g.id, g])),
+    [goals]
   );
 
   const dayViewTasks = React.useMemo(
@@ -377,6 +386,7 @@ export function TasksView({
   function renderTaskRow(task: Task, showDateBadge = false) {
     const isDone = task.status === "done";
     const project = task.project_id ? projectMap.get(task.project_id) : null;
+    const linkedGoal = task.goal_id ? goalMap.get(task.goal_id) : null;
     const slotInfo =
       SLOT_META[(task.day_slot as DaySlot) ?? "any"] ?? SLOT_META.any;
     const timeRange = formatTaskTimeRange(task, "Europe/Moscow");
@@ -460,6 +470,15 @@ export function TasksView({
 
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <span>{metaParts.join(" · ")}</span>
+            {linkedGoal ? (
+              <Badge
+                variant="outline"
+                className="gap-1 border-primary/25 bg-accent/35 px-1.5 py-0 text-[11px] font-normal text-foreground"
+              >
+                <TargetIcon className="size-2.5 shrink-0 text-primary" />
+                <span className="max-w-[160px] truncate">{linkedGoal.title}</span>
+              </Badge>
+            ) : null}
             {Array.isArray(task.tags) && task.tags.length > 0
               ? task.tags.slice(0, 3).map((tg) => (
                   <span
@@ -749,9 +768,22 @@ export function TasksView({
                         }}
                         className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
                       >
-                        <span className="truncate text-sm font-medium">
-                          {wt.title}
-                        </span>
+                        <div className="flex w-full flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm font-medium">
+                            {wt.title}
+                          </span>
+                          {wt.goal_id && goalMap.get(wt.goal_id) ? (
+                            <Badge
+                              variant="outline"
+                              className="gap-1 border-primary/25 bg-accent/35 px-1.5 py-0 text-[11px] font-normal text-foreground"
+                            >
+                              <TargetIcon className="size-2.5 shrink-0 text-primary" />
+                              <span className="max-w-[150px] truncate">
+                                {goalMap.get(wt.goal_id)?.title}
+                              </span>
+                            </Badge>
+                          ) : null}
+                        </div>
                         <span className="text-xs text-muted-foreground">
                           От кого:{" "}
                           <strong className="font-medium text-foreground">
@@ -1023,6 +1055,7 @@ export function TasksView({
         onOpenChange={setTaskModalOpen}
         task={editingTask}
         projects={projects}
+        goals={goals}
         defaultPlannedDate={modalDefaultDate}
         defaultScheduledTime={modalDefaultTime}
         defaultProjectId={modalDefaultProjectId}

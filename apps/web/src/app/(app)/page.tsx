@@ -43,6 +43,8 @@ export default async function HomePage() {
       todayFoodDiary={overview.todayFoodDiary}
       uncheckedShoppingItems={overview.uncheckedShoppingItems}
       activeWorkoutWindows={overview.activeWorkoutWindows}
+      habitsSummary={overview.habitsSummary}
+      goalsSummary={overview.goalsSummary}
     />
   );
 }

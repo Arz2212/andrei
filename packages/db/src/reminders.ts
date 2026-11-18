@@ -357,7 +357,7 @@ export async function markReminderFailed(
 
 export async function hasDigestBeenSentForDate(
   db: TypedSupabaseClient,
-  entityType: "morning_digest" | "evening_review",
+  entityType: "morning_digest" | "evening_review" | "weekly_digest",
   dateStr: string
 ): Promise<boolean> {
   const { data, error } = await db
@@ -375,7 +375,7 @@ export async function recordDigestSentForDate(
   db: TypedSupabaseClient,
   params: {
     userId: string;
-    entityType: "morning_digest" | "evening_review";
+    entityType: "morning_digest" | "evening_review" | "weekly_digest";
     dateStr: string;
     messageText: string;
     telegramChatId?: number;

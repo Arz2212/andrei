@@ -14,6 +14,7 @@ export { sendTelegramPush, stripHtmlToPlainText } from "./telegram-push";
 export {
   buildMorningDigestHtml,
   buildEveningReviewNudgeHtml,
+  buildWeeklyDigestHtml,
   DigestCheckController,
 } from "./digests";
 

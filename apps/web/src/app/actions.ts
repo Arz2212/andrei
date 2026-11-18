@@ -22,8 +22,11 @@ import {
   getDailyReview,
   getDayPlan,
   getDayPlansInRange,
+  getOwnerProfile,
   getWeekBoundsIso,
+  listGoalsWithDetails,
   listTasksInDateRange,
+  toggleHabitCheckin,
   toggleTaskDone,
   updateAssistantAgreement,
   updateAssistantSettings,
@@ -40,6 +43,7 @@ import {
   type Database,
   type DayPlan,
   type DaySlot,
+  type GoalLifeArea,
   type LifeArea,
   type SubtaskItem,
   type Task,
@@ -169,6 +173,7 @@ export interface SaveTaskPayload {
   estimated_minutes?: number | null;
   due_date?: string | null;
   project_id?: number | null;
+  goal_id?: number | null;
   scheduled_time?: string | null;
   is_meeting?: boolean;
   remind_before_minutes?: number | null;
@@ -252,6 +257,9 @@ export async function saveTaskAction(payload: SaveTaskPayload) {
     estimated_minutes: estimatedMinutes,
     due_date: payload.due_date || null,
     project_id: payload.project_id || null,
+    ...(payload.goal_id !== undefined
+      ? { goal_id: payload.goal_id || null }
+      : {}),
     scheduled_start_at: scheduledStartAt,
     scheduled_end_at: scheduledEndAt,
     is_meeting: isMeeting,
@@ -271,12 +279,57 @@ export async function saveTaskAction(payload: SaveTaskPayload) {
     await createTask(db, {
       user_id: userId,
       ...common,
+      goal_id: payload.goal_id || null,
       waiting_since: isWaiting ? formatIsoDate() : null,
       source: "web",
     });
   }
 
   revalidateAll();
+}
+
+export async function toggleHomeHabitAction(params: {
+  habitId: number;
+  date?: string;
+  completed?: boolean;
+}) {
+  const { db, userId } = await requireOwnerSession();
+  const profile = await getOwnerProfile(db);
+  const res = await toggleHabitCheckin(db, userId, {
+    habitIdOrQuery: params.habitId,
+    date: params.date,
+    completed: params.completed,
+    source: "web",
+    timeZone: profile?.timezone ?? "Europe/Moscow",
+  });
+  revalidatePath("/");
+  revalidatePath("/goals");
+  return {
+    habitId: res.habit.id,
+    completed: res.completed,
+    currentStreak: res.habit.currentStreak,
+    bestStreak: res.habit.bestStreak,
+    thisWeekDone: res.habit.thisWeekDone,
+    thisWeekTarget: res.habit.thisWeekTarget,
+  };
+}
+
+export interface GoalSelectOption {
+  id: number;
+  title: string;
+  life_area: GoalLifeArea;
+}
+
+export async function fetchActiveGoalsSelectAction(): Promise<
+  GoalSelectOption[]
+> {
+  const { db } = await requireOwnerSession();
+  const goals = await listGoalsWithDetails(db, { status: "active" });
+  return goals.map((g) => ({
+    id: g.id,
+    title: g.title,
+    life_area: g.life_area as GoalLifeArea,
+  }));
 }
 
 export async function deleteTaskAction(taskId: number) {
